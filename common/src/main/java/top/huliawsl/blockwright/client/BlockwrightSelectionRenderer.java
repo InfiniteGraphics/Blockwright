@@ -39,12 +39,12 @@ public final class BlockwrightSelectionRenderer {
 
         Vec3 cameraPosition = camera.getPosition();
         MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
-        VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
 
         poseStack.pushPose();
         poseStack.translate(-cameraPosition.x, -cameraPosition.y, -cameraPosition.z);
 
         renderPreview(minecraft, previewPlan, poseStack, bufferSource);
+        VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
         renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
 
