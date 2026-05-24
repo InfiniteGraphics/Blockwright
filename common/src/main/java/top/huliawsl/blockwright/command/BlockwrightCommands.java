@@ -3,6 +3,7 @@ package top.huliawsl.blockwright.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
@@ -34,6 +35,40 @@ public final class BlockwrightCommands {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext context, Commands.CommandSelection selection) {
+        LiteralArgumentBuilder<CommandSourceStack> regionCommand = Commands.literal("region")
+                .requires(BlockwrightCommands::hasBuildPermission)
+                .then(Commands.literal("pos1")
+                        .executes(command -> setRegionCorner(command.getSource(), true)))
+                .then(Commands.literal("pos2")
+                        .executes(command -> setRegionCorner(command.getSource(), false)))
+                .then(Commands.literal("clear")
+                        .executes(command -> clearRegion(command.getSource())))
+                .then(Commands.literal("set")
+                        .then(Commands.argument("x1", IntegerArgumentType.integer())
+                                .then(Commands.argument("y1", IntegerArgumentType.integer())
+                                        .then(Commands.argument("z1", IntegerArgumentType.integer())
+                                                .then(Commands.argument("x2", IntegerArgumentType.integer())
+                                                        .then(Commands.argument("y2", IntegerArgumentType.integer())
+                                                                .then(Commands.argument("z2", IntegerArgumentType.integer())
+                                                                        .executes(BlockwrightCommands::setRegionCoordinates))))))));
+
+        LiteralArgumentBuilder<CommandSourceStack> splineCommand = Commands.literal("spline")
+                .requires(BlockwrightCommands::hasBuildPermission)
+                .then(Commands.literal("add")
+                        .executes(command -> addSplinePoint(command.getSource())))
+                .then(Commands.literal("addpos")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                .executes(BlockwrightCommands::addSplineCoordinate)))))
+                .then(Commands.literal("remove")
+                        .then(Commands.argument("index", IntegerArgumentType.integer(0))
+                                .executes(command -> removeSplinePoint(command.getSource(), IntegerArgumentType.getInteger(command, "index")))))
+                .then(Commands.literal("clear")
+                        .executes(command -> clearSpline(command.getSource())))
+                .then(Commands.literal("list")
+                        .executes(command -> listSpline(command.getSource())));
+
         dispatcher.register(Commands.literal("blockwright")
                 .then(Commands.literal("open")
                         .executes(command -> {
@@ -69,38 +104,8 @@ public final class BlockwrightCommands {
                 .then(Commands.literal("undo")
                         .requires(BlockwrightCommands::hasBuildPermission)
                         .executes(command -> undo(command.getSource())))
-                .then(Commands.literal("region")
-                        .requires(BlockwrightCommands::hasBuildPermission)
-                        .then(Commands.literal("pos1")
-                                .executes(command -> setRegionCorner(command.getSource(), true)))
-                        .then(Commands.literal("pos2")
-                                .executes(command -> setRegionCorner(command.getSource(), false)))
-                        .then(Commands.literal("clear")
-                                .executes(command -> clearRegion(command.getSource())))
-                        .then(Commands.literal("set")
-                                .then(Commands.argument("x1", IntegerArgumentType.integer())
-                                        .then(Commands.argument("y1", IntegerArgumentType.integer())
-                                                .then(Commands.argument("z1", IntegerArgumentType.integer())
-                                                        .then(Commands.argument("x2", IntegerArgumentType.integer())
-                                                                .then(Commands.argument("y2", IntegerArgumentType.integer())
-                                                                        .then(Commands.argument("z2", IntegerArgumentType.integer())
-                                                                                .executes(BlockwrightCommands::setRegionCoordinates))))))))
-                .then(Commands.literal("spline")
-                        .requires(BlockwrightCommands::hasBuildPermission)
-                        .then(Commands.literal("add")
-                                .executes(command -> addSplinePoint(command.getSource())))
-                        .then(Commands.literal("addpos")
-                                .then(Commands.argument("x", IntegerArgumentType.integer())
-                                        .then(Commands.argument("y", IntegerArgumentType.integer())
-                                                .then(Commands.argument("z", IntegerArgumentType.integer())
-                                                        .executes(BlockwrightCommands::addSplineCoordinate)))))
-                        .then(Commands.literal("remove")
-                                .then(Commands.argument("index", IntegerArgumentType.integer(0))
-                                        .executes(command -> removeSplinePoint(command.getSource(), IntegerArgumentType.getInteger(command, "index")))))
-                        .then(Commands.literal("clear")
-                                .executes(command -> clearSpline(command.getSource())))
-                        .then(Commands.literal("list")
-                                .executes(command -> listSpline(command.getSource())))));
+                .then(regionCommand)
+                .then(splineCommand));
     }
 
     private static boolean hasBuildPermission(CommandSourceStack source) {
