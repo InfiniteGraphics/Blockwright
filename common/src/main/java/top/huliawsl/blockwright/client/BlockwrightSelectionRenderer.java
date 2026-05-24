@@ -14,6 +14,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 import top.huliawsl.blockwright.preview.PreviewPlan;
+import top.huliawsl.blockwright.preview.PreviewSeverity;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 import top.huliawsl.blockwright.selection.SplineSelection;
 import net.minecraft.world.level.block.RenderShape;
@@ -53,6 +54,7 @@ public final class BlockwrightSelectionRenderer {
         renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
         renderSpline(lineConsumer, poseStack, splineSelection);
+        renderPreviewBounds(lineConsumer, poseStack, previewPlan);
 
         if (regionSelection.isComplete()) {
             LevelRenderer.renderLineBox(
@@ -97,6 +99,29 @@ public final class BlockwrightSelectionRenderer {
             );
             poseStack.popPose();
         }
+    }
+
+    private static void renderPreviewBounds(VertexConsumer lineConsumer, PoseStack poseStack, PreviewPlan plan) {
+        if (plan == null || plan.getPlannedBlocks().isEmpty()) {
+            return;
+        }
+        float red;
+        float green;
+        float blue;
+        if (plan.isStale() || plan.getOverallSeverity() == PreviewSeverity.ERROR) {
+            red = 0.95F;
+            green = 0.35F;
+            blue = 0.35F;
+        } else if (plan.getOverallSeverity() == PreviewSeverity.WARNING) {
+            red = 0.95F;
+            green = 0.84F;
+            blue = 0.34F;
+        } else {
+            red = 0.45F;
+            green = 0.88F;
+            blue = 0.52F;
+        }
+        LevelRenderer.renderLineBox(poseStack, lineConsumer, plan.getBounds().inflate(REGION_PADDING), red, green, blue, 1.0F);
     }
 
     private static void renderSpline(VertexConsumer lineConsumer, PoseStack poseStack, SplineSelection splineSelection) {

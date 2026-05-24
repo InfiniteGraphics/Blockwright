@@ -41,12 +41,12 @@ public final class ClientSelectionState {
         }
         if ("blockwright region clear".equals(command)) {
             REGION_SELECTION.clear();
-            ClientPreviewState.clear();
+            ClientPreviewState.markStale();
             return;
         }
         if ("blockwright spline clear".equals(command)) {
             SPLINE_SELECTION.clear();
-            ClientPreviewState.clear();
+            ClientPreviewState.markStale();
             return;
         }
         if ("blockwright preview clear".equals(command)) {
@@ -60,33 +60,33 @@ public final class ClientSelectionState {
         if (playerPos != null) {
             if ("blockwright region pos1".equals(command)) {
                 REGION_SELECTION.setPos1(playerPos);
-                ClientPreviewState.clear();
+                ClientPreviewState.markStale();
                 return;
             }
             if ("blockwright region pos2".equals(command)) {
                 REGION_SELECTION.setPos2(playerPos);
-                ClientPreviewState.clear();
+                ClientPreviewState.markStale();
                 return;
             }
             if ("blockwright spline add".equals(command)) {
                 SPLINE_SELECTION.addPoint(playerPos);
-                ClientPreviewState.clear();
+                ClientPreviewState.markStale();
                 return;
             }
         }
         if (command.startsWith(REGION_SET_PREFIX)) {
             captureRegionSet(command);
-            ClientPreviewState.clear();
+            ClientPreviewState.markStale();
             return;
         }
         if (command.startsWith(SPLINE_ADDPOS_PREFIX)) {
             captureSplineAddPos(command);
-            ClientPreviewState.clear();
+            ClientPreviewState.markStale();
             return;
         }
         if (command.startsWith(SPLINE_REMOVE_PREFIX)) {
             captureSplineRemove(command);
-            ClientPreviewState.clear();
+            ClientPreviewState.markStale();
         }
     }
 

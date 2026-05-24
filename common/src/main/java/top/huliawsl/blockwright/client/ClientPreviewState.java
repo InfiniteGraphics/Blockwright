@@ -16,6 +16,12 @@ public final class ClientPreviewState {
         ClientPreviewState.previewPlan = previewPlan;
     }
 
+    public static void markStale() {
+        if (previewPlan != null) {
+            previewPlan.setStale(true);
+        }
+    }
+
     public static void clear() {
         previewPlan = null;
     }

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.architectury.event.events.client.ClientTickEvent;
 import dev.architectury.registry.client.keymappings.KeyMappingRegistry;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 public final class BlockwrightClient {
@@ -32,6 +33,12 @@ public final class BlockwrightClient {
                 ClientPreviewState.clear();
             }
             while (OPEN_SCREEN.consumeClick()) {
+                if (client.player == null || !client.player.isCreative()) {
+                    if (client.player != null) {
+                        client.player.displayClientMessage(Component.literal("Blockwright 只允许创造模式玩家打开。"), true);
+                    }
+                    continue;
+                }
                 client.setScreen(new BlockwrightMainScreen());
             }
         });
