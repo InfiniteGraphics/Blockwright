@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "blockwright",
+  "version": "${version}",
+  "name": "Blockwright",
+  "description": "",
+  "authors": [
+    ""
+  ],
+  "contact": {
+    "homepage": ""
+  },
+  "license": "All-Rights-Reserved",
+  "icon": "assets/blockwright/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "top.huliawsl.blockwright.fabric.BlockwrightFabric"
+    ],
+    "client": [
+      "top.huliawsl.blockwright.fabric.client.BlockwrightFabricClient"
+    ]
+  },
+  "mixins": [
+    "blockwright.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.2",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "architectury": ">=9.2.14",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "another-mod": "*"
+  }
+}

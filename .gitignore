@@ -1,0 +1,50 @@
+# General / OS-specific files
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.bak
+*~
+desktop.ini
+
+# Java and compilation output
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.war
+*.ear
+target/
+bin/
+out/
+
+# Gradle related
+.gradle/
+build/
+.gradle-home/
+gradlew.bat.lock
+gradlew.lock
+
+# IDE specific files
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Minecraft modding specific
+run/
+remapped.jar
+sources.jar
+dev.jar
+.fabric/
+.mixin.out/
+
+# Dependency caches
+.m2/
+.maven/
+
+# Miscellaneous
+local/
