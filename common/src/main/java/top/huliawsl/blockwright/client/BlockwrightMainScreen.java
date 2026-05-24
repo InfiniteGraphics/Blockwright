@@ -39,6 +39,19 @@ public final class BlockwrightMainScreen extends Screen {
     private final List<EditBox> parameterBoxes = new ArrayList<>();
     private final List<String> parameterKeys = new ArrayList<>();
 
+    private int contentLeft;
+    private int top;
+    private int panelBottom;
+    private int leftWidth;
+    private int middleWidth;
+    private int rightWidth;
+    private int middleX;
+    private int rightX;
+    private int parameterViewportTop;
+    private int parameterViewportBottom;
+    private int parameterScroll;
+    private int maxParameterScroll;
+
     private Button previewButton;
     private Button bakeButton;
     private Button undoButton;
@@ -53,80 +66,72 @@ public final class BlockwrightMainScreen extends Screen {
         clearWidgets();
         parameterBoxes.clear();
         parameterKeys.clear();
-
-        int contentLeft = Math.max(12, this.width / 2 - 286);
-        int top = 20;
-        int columnGap = 10;
-        int leftWidth = 176;
-        int middleWidth = 230;
-        int rightWidth = 176;
-        int middleX = contentLeft + leftWidth + columnGap;
-        int rightX = middleX + middleWidth + columnGap;
+        initLayout();
 
         addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePreset(-1))
-                .bounds(middleX, top + 20, 24, 20)
+                .bounds(middleX + 12, top + 18, 24, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePreset(1))
-                .bounds(middleX + middleWidth - 24, top + 20, 24, 20)
+                .bounds(middleX + middleWidth - 36, top + 18, 24, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Reload"), button -> reloadPacks())
-                .bounds(rightX, top + 20, 70, 20)
+                .bounds(rightX + 12, top + 18, rightWidth - 24, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Close"), button -> onClose())
-                .bounds(rightX + rightWidth - 70, top + 20, 70, 20)
+                .bounds(rightX + 12, top + 42, rightWidth - 24, 20)
                 .build());
 
-        int inputY = top + 78;
+        int regionY = top + 90;
         addRenderableWidget(Button.builder(Component.literal("Set P1"), button -> sendCommand("blockwright region pos1"))
-                .bounds(contentLeft + 12, inputY + 34, 70, 20)
+                .bounds(contentLeft + 12, regionY + 42, 70, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Set P2"), button -> sendCommand("blockwright region pos2"))
-                .bounds(contentLeft + 92, inputY + 34, 70, 20)
+                .bounds(contentLeft + 92, regionY + 42, 70, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Clear"), button -> sendCommand("blockwright region clear"))
-                .bounds(contentLeft + 12, inputY + 58, 150, 20)
+                .bounds(contentLeft + 12, regionY + 66, 150, 20)
                 .build());
 
-        int splineY = inputY + 126;
-        addRenderableWidget(Button.builder(Component.literal("Add Point"), button -> sendCommand("blockwright spline add"))
-                .bounds(contentLeft + 12, splineY + 34, 80, 20)
+        int splineY = top + 212;
+        addRenderableWidget(Button.builder(Component.literal("Add"), button -> sendCommand("blockwright spline add"))
+                .bounds(contentLeft + 12, splineY + 30, 46, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("List"), button -> sendCommand("blockwright spline list"))
-                .bounds(contentLeft + 100, splineY + 34, 62, 20)
+                .bounds(contentLeft + 62, splineY + 30, 46, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Clear"), button -> sendCommand("blockwright spline clear"))
-                .bounds(contentLeft + 12, splineY + 58, 150, 20)
+                .bounds(contentLeft + 112, splineY + 30, 50, 20)
                 .build());
 
         PresetDefinition preset = getSelectedPreset();
         if (preset != null) {
-            int formY = top + 118;
             for (Map.Entry<String, PresetParameterDefinition> entry : preset.parameters.entrySet()) {
                 if (!entry.getValue().exposed) {
                     continue;
                 }
                 parameterKeys.add(entry.getKey());
-                EditBox box = new EditBox(this.font, middleX + 88, formY, middleWidth - 100, 18, Component.literal(entry.getKey()));
+                EditBox box = new EditBox(this.font, 0, 0, middleWidth - 108, 18, Component.literal(entry.getKey()));
                 box.setValue(entry.getValue().defaultValue == null ? "" : entry.getValue().defaultValue.getAsString());
                 box.setResponder(value -> ClientPreviewState.markStale());
                 addRenderableWidget(box);
                 parameterBoxes.add(box);
-                formY += 34;
             }
         }
 
         previewButton = addRenderableWidget(Button.builder(Component.literal("Preview"), button -> sendPreviewCommand())
-                .bounds(rightX + 12, top + 222, rightWidth - 24, 20)
+                .bounds(rightX + 12, top + 94, rightWidth - 24, 20)
                 .build());
         bakeButton = addRenderableWidget(Button.builder(Component.literal("Bake"), button -> sendCommand("blockwright bake"))
-                .bounds(rightX + 12, top + 246, rightWidth - 24, 20)
+                .bounds(rightX + 12, top + 118, rightWidth - 24, 20)
                 .build());
         undoButton = addRenderableWidget(Button.builder(Component.literal("Undo"), button -> sendCommand("blockwright undo"))
-                .bounds(rightX + 12, top + 270, rightWidth - 24, 20)
+                .bounds(rightX + 12, top + 142, rightWidth - 24, 20)
                 .build());
         clearPreviewButton = addRenderableWidget(Button.builder(Component.literal("Clear Preview"), button -> sendCommand("blockwright preview clear"))
-                .bounds(rightX + 12, top + 294, rightWidth - 24, 20)
+                .bounds(rightX + 12, top + 166, rightWidth - 24, 20)
                 .build());
+
+        layoutParameterFields();
         updateActionStates();
     }
 
@@ -134,17 +139,6 @@ public final class BlockwrightMainScreen extends Screen {
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(guiGraphics);
         drawAtmosphere(guiGraphics);
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
-
-        int contentLeft = Math.max(12, this.width / 2 - 286);
-        int top = 20;
-        int columnGap = 10;
-        int leftWidth = 176;
-        int middleWidth = 230;
-        int rightWidth = 176;
-        int middleX = contentLeft + leftWidth + columnGap;
-        int rightX = middleX + middleWidth + columnGap;
-        int panelBottom = this.height - 20;
 
         drawPanel(guiGraphics, contentLeft, top, leftWidth, panelBottom - top);
         drawPanel(guiGraphics, middleX, top, middleWidth, panelBottom - top);
@@ -162,17 +156,29 @@ public final class BlockwrightMainScreen extends Screen {
         guiGraphics.drawString(this.font, "Status", rightX + 12, top + 8, TEXT_BRIGHT);
 
         guiGraphics.drawString(this.font, selectedPack == null ? "Pack: <none>" : "Pack: " + selectedPack.getMetadata().id,
-                middleX + 30, top + 24, TEXT_MUTED);
+                middleX + 44, top + 22, TEXT_MUTED);
         guiGraphics.drawString(this.font, preset == null ? "Preset: <none>" : "Preset: " + preset.id,
-                middleX + 30, top + 36, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleX + 12, top + 60, TEXT_MUTED);
+                middleX + 44, top + 34, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleX + 12, top + 58, TEXT_MUTED);
 
-        drawRegionSection(guiGraphics, contentLeft + 12, top + 78, regionSelection);
-        drawSplineSection(guiGraphics, contentLeft + 12, top + 204, splineSelection);
-        drawParameterLabels(guiGraphics, middleX + 12, top + 104, preset);
-        drawStatusPanel(guiGraphics, rightX + 12, top + 58, rightWidth - 24, previewPlan, selectedPack);
-        drawFooter(guiGraphics, contentLeft + 12, this.height - 34);
+        drawRegionSection(guiGraphics, contentLeft + 12, top + 90, regionSelection);
+        drawSplineSection(guiGraphics, contentLeft + 12, top + 212, splineSelection);
+        drawInputHints(guiGraphics, contentLeft + 12, panelBottom - 34);
+        drawParameterLabels(guiGraphics, middleX + 12, preset);
+        drawStatusPanel(guiGraphics, rightX + 12, top + 204, rightWidth - 24, previewPlan, selectedPack);
+        super.render(guiGraphics, mouseX, mouseY, partialTick);
         updateActionStates();
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        if (mouseX >= middleX && mouseX <= middleX + middleWidth && mouseY >= parameterViewportTop - 8 && mouseY <= parameterViewportBottom + 8) {
+            int nextScroll = parameterScroll - (int) (delta * 16.0D);
+            parameterScroll = Math.max(0, Math.min(maxParameterScroll, nextScroll));
+            layoutParameterFields();
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
     @Override
@@ -187,6 +193,40 @@ public final class BlockwrightMainScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    private void initLayout() {
+        contentLeft = Math.max(12, this.width / 2 - 286);
+        top = 18;
+        panelBottom = this.height - 18;
+        leftWidth = 176;
+        middleWidth = 230;
+        rightWidth = 176;
+        middleX = contentLeft + leftWidth + 10;
+        rightX = middleX + middleWidth + 10;
+        parameterViewportTop = top + 112;
+        parameterViewportBottom = panelBottom - 14;
+    }
+
+    private void layoutParameterFields() {
+        int viewportHeight = Math.max(40, parameterViewportBottom - parameterViewportTop);
+        int contentHeight = Math.max(0, parameterKeys.size() * 30 - 10);
+        maxParameterScroll = Math.max(0, contentHeight - viewportHeight);
+        parameterScroll = Math.max(0, Math.min(parameterScroll, maxParameterScroll));
+
+        int baseY = parameterViewportTop - parameterScroll;
+        for (int i = 0; i < parameterBoxes.size(); i++) {
+            EditBox box = parameterBoxes.get(i);
+            int y = baseY + i * 30;
+            boolean visible = y >= parameterViewportTop - 6 && y + box.getHeight() <= parameterViewportBottom + 6;
+            box.setX(middleX + 88);
+            box.setY(y);
+            box.setVisible(visible);
+            box.active = visible;
+            if (!visible) {
+                box.setFocused(false);
+            }
+        }
     }
 
     private void drawAtmosphere(GuiGraphics guiGraphics) {
@@ -208,12 +248,11 @@ public final class BlockwrightMainScreen extends Screen {
         guiGraphics.drawString(this.font, "P1: " + formatPos(regionSelection.getPos1()), x, y + 16, 0xFFF2C94C);
         guiGraphics.drawString(this.font, "P2: " + formatPos(regionSelection.getPos2()), x, y + 28, 0xFF56CCF2);
         if (regionSelection.isComplete()) {
-            guiGraphics.drawString(this.font,
-                    "Size: " + regionSelection.getWidth() + " x " + regionSelection.getHeight() + " x " + regionSelection.getDepth(),
-                    x, y + 84, STATUS_OK);
-            guiGraphics.drawString(this.font, "Volume: " + regionSelection.getVolume(), x, y + 96, TEXT_MUTED);
+            guiGraphics.drawString(this.font, trimToWidth("Size: " + regionSelection.getWidth() + " x " + regionSelection.getHeight() + " x " + regionSelection.getDepth(), leftWidth - 24),
+                    x, y + 94, STATUS_OK);
+            guiGraphics.drawString(this.font, "Volume: " + regionSelection.getVolume(), x, y + 106, TEXT_MUTED);
         } else {
-            guiGraphics.drawString(this.font, "Select both corners to enable region presets.", x, y + 84, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "Set both corners before preview.", x, y + 94, TEXT_MUTED);
         }
     }
 
@@ -221,29 +260,42 @@ public final class BlockwrightMainScreen extends Screen {
         guiGraphics.drawString(this.font, "Spline", x, y, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "Points: " + splineSelection.getPoints().size(), x, y + 16, TEXT_MUTED);
         if (splineSelection.getPoints().isEmpty()) {
-            guiGraphics.drawString(this.font, "No control points.", x, y + 84, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "No control points.", x, y + 58, TEXT_MUTED);
             return;
         }
-        int lineY = y + 84;
-        for (int i = 0; i < Math.min(4, splineSelection.getPoints().size()); i++) {
-            guiGraphics.drawString(this.font, "#" + i + " " + splineSelection.getPoints().get(i).toShortString(), x, lineY, TEXT_BRIGHT);
+
+        int lineY = y + 58;
+        for (int i = 0; i < Math.min(5, splineSelection.getPoints().size()); i++) {
+            guiGraphics.drawString(this.font, trimToWidth("#" + i + " " + splineSelection.getPoints().get(i).toShortString(), leftWidth - 24), x, lineY, TEXT_BRIGHT);
             lineY += 12;
         }
-        if (splineSelection.getPoints().size() > 4) {
+        if (splineSelection.getPoints().size() > 5) {
             guiGraphics.drawString(this.font, "...", x, lineY, TEXT_MUTED);
         }
     }
 
-    private void drawParameterLabels(GuiGraphics guiGraphics, int x, int y, PresetDefinition preset) {
-        guiGraphics.drawString(this.font, "Parameters", x, y - 18, TEXT_BRIGHT);
+    private void drawInputHints(GuiGraphics guiGraphics, int x, int y) {
+        guiGraphics.drawString(this.font, "1. 选择 Region 或 Spline", x, y, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "2. 调参数后再 Preview", x, y + 12, TEXT_MUTED);
+    }
+
+    private void drawParameterLabels(GuiGraphics guiGraphics, int x, PresetDefinition preset) {
+        guiGraphics.drawString(this.font, "Parameters", x, top + 88, TEXT_BRIGHT);
         if (preset == null) {
-            guiGraphics.drawString(this.font, "No preset loaded.", x, y, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "No preset loaded.", x, parameterViewportTop, TEXT_MUTED);
             return;
         }
-        int labelY = y + 4;
-        for (String key : parameterKeys) {
-            guiGraphics.drawString(this.font, key, x, labelY, TEXT_MUTED);
-            labelY += 34;
+        if (maxParameterScroll > 0) {
+            guiGraphics.drawString(this.font, "Scroll", middleX + middleWidth - 44, top + 88, TEXT_MUTED);
+        }
+
+        int baseY = parameterViewportTop - parameterScroll;
+        for (int i = 0; i < parameterKeys.size(); i++) {
+            int labelY = baseY + i * 30 + 5;
+            if (labelY < parameterViewportTop - 2 || labelY > parameterViewportBottom - 10) {
+                continue;
+            }
+            guiGraphics.drawString(this.font, parameterKeys.get(i), x, labelY, TEXT_MUTED);
         }
     }
 
@@ -262,22 +314,20 @@ public final class BlockwrightMainScreen extends Screen {
             guiGraphics.drawString(this.font, "State: " + severity + (previewPlan.isStale() ? " / STALE" : ""), x, y + 28, color);
         }
 
-        guiGraphics.drawString(this.font, "Issues", x, y + 82, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Issues", x, y + 58, TEXT_BRIGHT);
         List<String> issues = collectIssueLines(previewPlan, selectedPack);
-        int issueY = y + 98;
+        int issueY = y + 74;
         if (issues.isEmpty()) {
             guiGraphics.drawString(this.font, "No warnings.", x, issueY, TEXT_MUTED);
-        } else {
-            for (int i = 0; i < Math.min(8, issues.size()); i++) {
-                guiGraphics.drawString(this.font, trimToWidth(issues.get(i), width), x, issueY, issueColor(issues.get(i)));
-                issueY += 12;
+            return;
+        }
+        for (int i = 0; i < Math.min(12, issues.size()); i++) {
+            guiGraphics.drawString(this.font, trimToWidth(issues.get(i), width), x, issueY, issueColor(issues.get(i)));
+            issueY += 12;
+            if (issueY > panelBottom - 16) {
+                break;
             }
         }
-    }
-
-    private void drawFooter(GuiGraphics guiGraphics, int x, int y) {
-        guiGraphics.drawString(this.font, "1. 先设 Region 或 Spline。 2. 选 preset 并调参数。", x, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "3. 生成 Preview。 4. 状态正常后再 Bake。", x, y + 12, TEXT_MUTED);
     }
 
     private List<String> collectIssueLines(PreviewPlan previewPlan, LoadedPack selectedPack) {
@@ -381,8 +431,9 @@ public final class BlockwrightMainScreen extends Screen {
         Map<String, String> overrideMap = new LinkedHashMap<>();
         List<String> overrideParts = new ArrayList<>();
         for (int i = 0; i < parameterKeys.size(); i++) {
+            EditBox box = parameterBoxes.get(i);
             String key = parameterKeys.get(i);
-            String value = parameterBoxes.get(i).getValue();
+            String value = box.getValue();
             overrideMap.put(key, value);
             overrideParts.add(key + "=" + value);
         }
