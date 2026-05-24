@@ -223,6 +223,7 @@ public final class BlockwrightCommands {
         }
         List<top.huliawsl.blockwright.world.UndoEntry> undoEntries = StructurePlacer.bake(player.serverLevel(), plan);
         session.pushUndo(undoEntries, MAX_UNDO_HISTORY);
+        session.setPreviewPlan(null);
         send(source, "Bake complete: " + undoEntries.size() + " block(s) captured for undo.");
         return undoEntries.size();
     }

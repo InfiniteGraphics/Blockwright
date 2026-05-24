@@ -12,14 +12,17 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
+import top.huliawsl.blockwright.selection.SplineSelection;
 import net.minecraft.world.level.block.RenderShape;
 
 public final class BlockwrightSelectionRenderer {
     private static final float PREVIEW_ALPHA = 0.4F;
     private static final double CORNER_PADDING = 0.02D;
     private static final double REGION_PADDING = 0.002D;
+    private static final double SPLINE_POINT_PADDING = 0.12D;
 
     private BlockwrightSelectionRenderer() {
     }
@@ -31,8 +34,10 @@ public final class BlockwrightSelectionRenderer {
         }
 
         BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
+        SplineSelection splineSelection = ClientSelectionState.getSplineSelection();
         PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
         if (regionSelection.getPos1() == null && regionSelection.getPos2() == null
+                && splineSelection.getPoints().isEmpty()
                 && (previewPlan == null || previewPlan.getPlannedBlocks().isEmpty())) {
             return;
         }
@@ -47,6 +52,7 @@ public final class BlockwrightSelectionRenderer {
         VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
         renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
+        renderSpline(lineConsumer, poseStack, splineSelection);
 
         if (regionSelection.isComplete()) {
             LevelRenderer.renderLineBox(
@@ -93,6 +99,21 @@ public final class BlockwrightSelectionRenderer {
         }
     }
 
+    private static void renderSpline(VertexConsumer lineConsumer, PoseStack poseStack, SplineSelection splineSelection) {
+        if (splineSelection.getPoints().isEmpty()) {
+            return;
+        }
+
+        BlockPos previous = null;
+        for (BlockPos point : splineSelection.getPoints()) {
+            renderSplinePoint(lineConsumer, poseStack, point);
+            if (previous != null) {
+                renderSplineSegment(lineConsumer, poseStack, previous, point);
+            }
+            previous = point;
+        }
+    }
+
     private static void renderCorner(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, float red, float green, float blue) {
         if (pos == null) {
             return;
@@ -113,6 +134,48 @@ public final class BlockwrightSelectionRenderer {
                 blue,
                 1.0F
         );
+    }
+
+    private static void renderSplinePoint(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos) {
+        LevelRenderer.renderLineBox(
+                poseStack,
+                lineConsumer,
+                new AABB(
+                        pos.getX() + SPLINE_POINT_PADDING,
+                        pos.getY() + SPLINE_POINT_PADDING,
+                        pos.getZ() + SPLINE_POINT_PADDING,
+                        pos.getX() + 1 - SPLINE_POINT_PADDING,
+                        pos.getY() + 1 - SPLINE_POINT_PADDING,
+                        pos.getZ() + 1 - SPLINE_POINT_PADDING
+                ),
+                0.96F,
+                0.38F,
+                0.22F,
+                1.0F
+        );
+    }
+
+    private static void renderSplineSegment(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos from, BlockPos to) {
+        Vec3 fromCenter = Vec3.atCenterOf(from);
+        Vec3 toCenter = Vec3.atCenterOf(to);
+        Vector3f normal = new Vector3f(
+                (float) (toCenter.x - fromCenter.x),
+                (float) (toCenter.y - fromCenter.y),
+                (float) (toCenter.z - fromCenter.z)
+        );
+        if (normal.lengthSquared() == 0.0F) {
+            return;
+        }
+        normal.normalize();
+        PoseStack.Pose pose = poseStack.last();
+        lineConsumer.vertex(pose.pose(), (float) fromCenter.x, (float) fromCenter.y, (float) fromCenter.z)
+                .color(0.96F, 0.68F, 0.24F, 1.0F)
+                .normal(pose.normal(), normal.x(), normal.y(), normal.z())
+                .endVertex();
+        lineConsumer.vertex(pose.pose(), (float) toCenter.x, (float) toCenter.y, (float) toCenter.z)
+                .color(0.96F, 0.68F, 0.24F, 1.0F)
+                .normal(pose.normal(), normal.x(), normal.y(), normal.z())
+                .endVertex();
     }
 
     private static final class GhostBufferSource implements MultiBufferSource {

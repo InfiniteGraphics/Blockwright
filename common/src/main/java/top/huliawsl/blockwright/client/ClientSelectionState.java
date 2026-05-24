@@ -7,6 +7,7 @@ import top.huliawsl.blockwright.selection.SplineSelection;
 public final class ClientSelectionState {
     private static final String REGION_SET_PREFIX = "blockwright region set ";
     private static final String SPLINE_ADDPOS_PREFIX = "blockwright spline addpos ";
+    private static final String SPLINE_REMOVE_PREFIX = "blockwright spline remove ";
     private static final BoxRegionSelection REGION_SELECTION = new BoxRegionSelection();
     private static final SplineSelection SPLINE_SELECTION = new SplineSelection();
 
@@ -52,6 +53,10 @@ public final class ClientSelectionState {
             ClientPreviewState.clear();
             return;
         }
+        if ("blockwright bake".equals(command)) {
+            ClientPreviewState.clear();
+            return;
+        }
         if (playerPos != null) {
             if ("blockwright region pos1".equals(command)) {
                 REGION_SELECTION.setPos1(playerPos);
@@ -76,6 +81,11 @@ public final class ClientSelectionState {
         }
         if (command.startsWith(SPLINE_ADDPOS_PREFIX)) {
             captureSplineAddPos(command);
+            ClientPreviewState.clear();
+            return;
+        }
+        if (command.startsWith(SPLINE_REMOVE_PREFIX)) {
+            captureSplineRemove(command);
             ClientPreviewState.clear();
         }
     }
@@ -113,6 +123,18 @@ public final class ClientSelectionState {
                     Integer.parseInt(parts[1]),
                     Integer.parseInt(parts[2])
             ));
+        } catch (NumberFormatException ignored) {
+        }
+    }
+
+    private static void captureSplineRemove(String command) {
+        String rawIndex = command.substring(SPLINE_REMOVE_PREFIX.length()).trim();
+        if (rawIndex.isEmpty()) {
+            return;
+        }
+
+        try {
+            SPLINE_SELECTION.removeIndex(Integer.parseInt(rawIndex));
         } catch (NumberFormatException ignored) {
         }
     }
