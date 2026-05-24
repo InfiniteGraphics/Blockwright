@@ -1,7 +1,6 @@
 package top.huliawsl.blockwright.pack;
 
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 
 import java.io.IOException;
@@ -15,7 +14,7 @@ public final class SpongeSchematicReader {
 
     public static SpongeSchematicMetadata readMetadata(Path path) throws IOException {
         try (InputStream inputStream = Files.newInputStream(path)) {
-            CompoundTag root = NbtIo.readCompressed(inputStream, NbtAccounter.unlimitedHeap());
+            CompoundTag root = NbtIo.readCompressed(inputStream);
             int width = Short.toUnsignedInt(root.getShort("Width"));
             int height = Short.toUnsignedInt(root.getShort("Height"));
             int length = Short.toUnsignedInt(root.getShort("Length"));
