@@ -7,19 +7,19 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.block.BlockRenderDispatcher;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Matrix4f;
-import top.huliawsl.blockwright.preview.PlannedBlock;
 import top.huliawsl.blockwright.preview.PreviewPlan;
-import top.huliawsl.blockwright.preview.PreviewSeverity;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
+import net.minecraft.world.level.block.RenderShape;
 
 public final class BlockwrightSelectionRenderer {
+    private static final float PREVIEW_ALPHA = 0.4F;
     private static final double CORNER_PADDING = 0.02D;
     private static final double REGION_PADDING = 0.002D;
-    private static final double PREVIEW_INSET = 0.06D;
 
     private BlockwrightSelectionRenderer() {
     }
@@ -40,12 +40,11 @@ public final class BlockwrightSelectionRenderer {
         Vec3 cameraPosition = camera.getPosition();
         MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
         VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
-        VertexConsumer fillConsumer = bufferSource.getBuffer(RenderType.debugFilledBox());
 
         poseStack.pushPose();
         poseStack.translate(-cameraPosition.x, -cameraPosition.y, -cameraPosition.z);
 
-        renderPreview(previewPlan, poseStack, fillConsumer, lineConsumer);
+        renderPreview(minecraft, previewPlan, poseStack, bufferSource);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
 
@@ -62,85 +61,36 @@ public final class BlockwrightSelectionRenderer {
         }
 
         poseStack.popPose();
-        bufferSource.endBatch(RenderType.debugFilledBox());
         bufferSource.endBatch(RenderType.lines());
+        bufferSource.endBatch(RenderType.translucentMovingBlock());
     }
 
-    private static void renderPreview(PreviewPlan plan, PoseStack poseStack, VertexConsumer fillConsumer, VertexConsumer lineConsumer) {
+    private static void renderPreview(Minecraft minecraft, PreviewPlan plan, PoseStack poseStack, MultiBufferSource.BufferSource bufferSource) {
         if (plan == null || plan.getPlannedBlocks().isEmpty()) {
             return;
         }
 
-        float red = 0.42F;
-        float green = 0.86F;
-        float blue = 1.0F;
-        if (plan.getOverallSeverity() == PreviewSeverity.WARNING) {
-            red = 1.0F;
-            green = 0.78F;
-            blue = 0.32F;
-        } else if (plan.getOverallSeverity() == PreviewSeverity.ERROR) {
-            red = 1.0F;
-            green = 0.32F;
-            blue = 0.32F;
+        if (minecraft.level == null) {
+            return;
         }
 
-        PoseStack.Pose pose = poseStack.last();
-        for (PlannedBlock block : plan.getPlannedBlocks()) {
-            BlockPos pos = block.getPos();
-            renderFilledBox(
-                    pose.pose(),
-                    fillConsumer,
-                    (float) (pos.getX() + PREVIEW_INSET),
-                    (float) (pos.getY() + PREVIEW_INSET),
-                    (float) (pos.getZ() + PREVIEW_INSET),
-                    (float) (pos.getX() + 1 - PREVIEW_INSET),
-                    (float) (pos.getY() + 1 - PREVIEW_INSET),
-                    (float) (pos.getZ() + 1 - PREVIEW_INSET),
-                    red,
-                    green,
-                    blue,
-                    0.22F
+        BlockRenderDispatcher blockRenderer = minecraft.getBlockRenderer();
+        GhostBufferSource ghostBufferSource = new GhostBufferSource(bufferSource, PREVIEW_ALPHA);
+        for (var block : plan.getPlannedBlocks()) {
+            if (block.getState().isAir() || block.getState().getRenderShape() != RenderShape.MODEL) {
+                continue;
+            }
+            poseStack.pushPose();
+            poseStack.translate(block.getPos().getX(), block.getPos().getY(), block.getPos().getZ());
+            blockRenderer.renderSingleBlock(
+                    block.getState(),
+                    poseStack,
+                    ghostBufferSource,
+                    LevelRenderer.getLightColor(minecraft.level, block.getState(), block.getPos()),
+                    OverlayTexture.NO_OVERLAY
             );
+            poseStack.popPose();
         }
-
-        LevelRenderer.renderLineBox(
-                poseStack,
-                lineConsumer,
-                plan.getBounds().inflate(REGION_PADDING),
-                red,
-                green,
-                blue,
-                0.9F
-        );
-    }
-
-    private static void renderFilledBox(Matrix4f pose, VertexConsumer consumer,
-                                        float minX, float minY, float minZ,
-                                        float maxX, float maxY, float maxZ,
-                                        float red, float green, float blue, float alpha) {
-        addFace(consumer, pose, minX, minY, minZ, maxX, minY, minZ, maxX, maxY, minZ, minX, maxY, minZ, red, green, blue, alpha);
-        addFace(consumer, pose, minX, minY, maxZ, minX, maxY, maxZ, maxX, maxY, maxZ, maxX, minY, maxZ, red, green, blue, alpha);
-        addFace(consumer, pose, minX, minY, minZ, minX, maxY, minZ, minX, maxY, maxZ, minX, minY, maxZ, red, green, blue, alpha);
-        addFace(consumer, pose, maxX, minY, minZ, maxX, minY, maxZ, maxX, maxY, maxZ, maxX, maxY, minZ, red, green, blue, alpha);
-        addFace(consumer, pose, minX, maxY, minZ, maxX, maxY, minZ, maxX, maxY, maxZ, minX, maxY, maxZ, red, green, blue, alpha);
-        addFace(consumer, pose, minX, minY, minZ, minX, minY, maxZ, maxX, minY, maxZ, maxX, minY, minZ, red, green, blue, alpha);
-    }
-
-    private static void addFace(VertexConsumer consumer, Matrix4f pose,
-                                float x1, float y1, float z1,
-                                float x2, float y2, float z2,
-                                float x3, float y3, float z3,
-                                float x4, float y4, float z4,
-                                float red, float green, float blue, float alpha) {
-        addVertex(consumer, pose, x1, y1, z1, red, green, blue, alpha);
-        addVertex(consumer, pose, x2, y2, z2, red, green, blue, alpha);
-        addVertex(consumer, pose, x3, y3, z3, red, green, blue, alpha);
-        addVertex(consumer, pose, x4, y4, z4, red, green, blue, alpha);
-    }
-
-    private static void addVertex(VertexConsumer consumer, Matrix4f pose, float x, float y, float z,
-                                  float red, float green, float blue, float alpha) {
-        consumer.vertex(pose, x, y, z).color(red, green, blue, alpha).endVertex();
     }
 
     private static void renderCorner(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, float red, float green, float blue) {
@@ -163,5 +113,91 @@ public final class BlockwrightSelectionRenderer {
                 blue,
                 1.0F
         );
+    }
+
+    private static final class GhostBufferSource implements MultiBufferSource {
+        private final MultiBufferSource delegate;
+        private final float alpha;
+
+        private GhostBufferSource(MultiBufferSource delegate, float alpha) {
+            this.delegate = delegate;
+            this.alpha = alpha;
+        }
+
+        @Override
+        public VertexConsumer getBuffer(RenderType renderType) {
+            return new AlphaVertexConsumer(delegate.getBuffer(RenderType.translucentMovingBlock()), alpha);
+        }
+    }
+
+    private static final class AlphaVertexConsumer implements VertexConsumer {
+        private final VertexConsumer delegate;
+        private final float alpha;
+
+        private AlphaVertexConsumer(VertexConsumer delegate, float alpha) {
+            this.delegate = delegate;
+            this.alpha = alpha;
+        }
+
+        @Override
+        public VertexConsumer vertex(double x, double y, double z) {
+            delegate.vertex(x, y, z);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer color(int red, int green, int blue, int alpha) {
+            delegate.color(red, green, blue, scaleAlpha(alpha));
+            return this;
+        }
+
+        @Override
+        public VertexConsumer uv(float u, float v) {
+            delegate.uv(u, v);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer overlayCoords(int u, int v) {
+            delegate.overlayCoords(u, v);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer uv2(int u, int v) {
+            delegate.uv2(u, v);
+            return this;
+        }
+
+        @Override
+        public VertexConsumer normal(float x, float y, float z) {
+            delegate.normal(x, y, z);
+            return this;
+        }
+
+        @Override
+        public void endVertex() {
+            delegate.endVertex();
+        }
+
+        @Override
+        public void defaultColor(int red, int green, int blue, int alpha) {
+            delegate.defaultColor(red, green, blue, scaleAlpha(alpha));
+        }
+
+        @Override
+        public void unsetDefaultColor() {
+            delegate.unsetDefaultColor();
+        }
+
+        @Override
+        public void vertex(float x, float y, float z, float red, float green, float blue, float alpha, float u, float v, int overlay, int light,
+                           float normalX, float normalY, float normalZ) {
+            delegate.vertex(x, y, z, red, green, blue, alpha * this.alpha, u, v, overlay, light, normalX, normalY, normalZ);
+        }
+
+        private int scaleAlpha(int alpha) {
+            return Math.max(0, Math.min(255, Math.round(alpha * this.alpha)));
+        }
     }
 }
