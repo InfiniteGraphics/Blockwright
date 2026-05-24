@@ -9,11 +9,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.pack.LoadedPack;
+import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.preset.model.PresetDefinition;
 import top.huliawsl.blockwright.preset.model.PresetParameterDefinition;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -110,6 +112,7 @@ public final class BlockwrightMainScreen extends Screen {
         LoadedPack selectedPack = getSelectedPack();
         PresetDefinition preset = getSelectedPreset();
         BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
+        PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
 
         guiGraphics.drawString(this.font, this.title, left, 10, 0xFFFFFF);
         guiGraphics.drawString(this.font, "Pack: " + (selectedPack == null ? "<none>" : selectedPack.getMetadata().id), left, 118, 0xA0A0A0);
@@ -130,8 +133,17 @@ public final class BlockwrightMainScreen extends Screen {
                     0x7CFF92
             );
         }
+        if (previewPlan != null) {
+            guiGraphics.drawString(
+                    this.font,
+                    "Preview: " + previewPlan.getPlannedBlocks().size() + " blocks, " + previewPlan.getOverallSeverity(),
+                    left,
+                    178,
+                    0x8FE6FF
+            );
+        }
 
-        int y = 180;
+        int y = 192;
         for (int i = 0; i < parameterKeys.size(); i++) {
             guiGraphics.drawString(this.font, parameterKeys.get(i), left, y + 5, 0xFFFFFF);
             y += 24;
@@ -177,13 +189,18 @@ public final class BlockwrightMainScreen extends Screen {
             return;
         }
 
-        List<String> overrides = new ArrayList<>();
+        Map<String, String> overrideMap = new LinkedHashMap<>();
+        List<String> overrideParts = new ArrayList<>();
         for (int i = 0; i < parameterKeys.size(); i++) {
-            overrides.add(parameterKeys.get(i) + "=" + parameterBoxes.get(i).getValue());
+            String key = parameterKeys.get(i);
+            String value = parameterBoxes.get(i).getValue();
+            overrideMap.put(key, value);
+            overrideParts.add(key + "=" + value);
         }
+        ClientPreviewState.setPreviewPlan(ClientPreviewGenerator.generate(preset.id, overrideMap));
         String command = "blockwright preview generate " + preset.id;
-        if (!overrides.isEmpty()) {
-            command += " " + String.join(",", overrides);
+        if (!overrideParts.isEmpty()) {
+            command += " " + String.join(",", overrideParts);
         }
         sendCommand(command);
     }

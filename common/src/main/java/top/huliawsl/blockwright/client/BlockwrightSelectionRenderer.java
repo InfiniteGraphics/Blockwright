@@ -10,11 +10,15 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import top.huliawsl.blockwright.preview.PlannedBlock;
+import top.huliawsl.blockwright.preview.PreviewPlan;
+import top.huliawsl.blockwright.preview.PreviewSeverity;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 
 public final class BlockwrightSelectionRenderer {
     private static final double CORNER_PADDING = 0.02D;
     private static final double REGION_PADDING = 0.002D;
+    private static final double PREVIEW_INSET = 0.06D;
 
     private BlockwrightSelectionRenderer() {
     }
@@ -26,17 +30,21 @@ public final class BlockwrightSelectionRenderer {
         }
 
         BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
-        if (regionSelection.getPos1() == null && regionSelection.getPos2() == null) {
+        PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
+        if (regionSelection.getPos1() == null && regionSelection.getPos2() == null
+                && (previewPlan == null || previewPlan.getPlannedBlocks().isEmpty())) {
             return;
         }
 
         Vec3 cameraPosition = camera.getPosition();
         MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
         VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
+        VertexConsumer fillConsumer = bufferSource.getBuffer(RenderType.debugFilledBox());
 
         poseStack.pushPose();
         poseStack.translate(-cameraPosition.x, -cameraPosition.y, -cameraPosition.z);
 
+        renderPreview(previewPlan, poseStack, fillConsumer, lineConsumer);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
 
@@ -53,7 +61,55 @@ public final class BlockwrightSelectionRenderer {
         }
 
         poseStack.popPose();
+        bufferSource.endBatch(RenderType.debugFilledBox());
         bufferSource.endBatch(RenderType.lines());
+    }
+
+    private static void renderPreview(PreviewPlan plan, PoseStack poseStack, VertexConsumer fillConsumer, VertexConsumer lineConsumer) {
+        if (plan == null || plan.getPlannedBlocks().isEmpty()) {
+            return;
+        }
+
+        float red = 0.42F;
+        float green = 0.86F;
+        float blue = 1.0F;
+        if (plan.getOverallSeverity() == PreviewSeverity.WARNING) {
+            red = 1.0F;
+            green = 0.78F;
+            blue = 0.32F;
+        } else if (plan.getOverallSeverity() == PreviewSeverity.ERROR) {
+            red = 1.0F;
+            green = 0.32F;
+            blue = 0.32F;
+        }
+
+        for (PlannedBlock block : plan.getPlannedBlocks()) {
+            BlockPos pos = block.getPos();
+            LevelRenderer.renderFilledBox(
+                    poseStack,
+                    fillConsumer,
+                    (float) (pos.getX() + PREVIEW_INSET),
+                    (float) (pos.getY() + PREVIEW_INSET),
+                    (float) (pos.getZ() + PREVIEW_INSET),
+                    (float) (pos.getX() + 1 - PREVIEW_INSET),
+                    (float) (pos.getY() + 1 - PREVIEW_INSET),
+                    (float) (pos.getZ() + 1 - PREVIEW_INSET),
+                    red,
+                    green,
+                    blue,
+                    0.22F
+            );
+        }
+
+        LevelRenderer.renderLineBox(
+                poseStack,
+                lineConsumer,
+                plan.getBounds().inflate(REGION_PADDING),
+                red,
+                green,
+                blue,
+                0.9F
+        );
     }
 
     private static void renderCorner(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, float red, float green, float blue) {

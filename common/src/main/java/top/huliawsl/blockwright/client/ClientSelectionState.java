@@ -2,10 +2,13 @@ package top.huliawsl.blockwright.client;
 
 import net.minecraft.core.BlockPos;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
+import top.huliawsl.blockwright.selection.SplineSelection;
 
 public final class ClientSelectionState {
     private static final String REGION_SET_PREFIX = "blockwright region set ";
+    private static final String SPLINE_ADDPOS_PREFIX = "blockwright spline addpos ";
     private static final BoxRegionSelection REGION_SELECTION = new BoxRegionSelection();
+    private static final SplineSelection SPLINE_SELECTION = new SplineSelection();
 
     private ClientSelectionState() {
     }
@@ -14,8 +17,21 @@ public final class ClientSelectionState {
         return REGION_SELECTION;
     }
 
+    public static SplineSelection getSplineSelection() {
+        return SPLINE_SELECTION;
+    }
+
     public static void clearRegion() {
         REGION_SELECTION.clear();
+    }
+
+    public static void clearSpline() {
+        SPLINE_SELECTION.clear();
+    }
+
+    public static void clearAll() {
+        clearRegion();
+        clearSpline();
     }
 
     public static void captureCommand(String command, BlockPos playerPos) {
@@ -24,22 +40,47 @@ public final class ClientSelectionState {
         }
         if ("blockwright region clear".equals(command)) {
             REGION_SELECTION.clear();
+            ClientPreviewState.clear();
+            return;
+        }
+        if ("blockwright spline clear".equals(command)) {
+            SPLINE_SELECTION.clear();
+            ClientPreviewState.clear();
+            return;
+        }
+        if ("blockwright preview clear".equals(command)) {
+            ClientPreviewState.clear();
             return;
         }
         if (playerPos != null) {
             if ("blockwright region pos1".equals(command)) {
                 REGION_SELECTION.setPos1(playerPos);
+                ClientPreviewState.clear();
                 return;
             }
             if ("blockwright region pos2".equals(command)) {
                 REGION_SELECTION.setPos2(playerPos);
+                ClientPreviewState.clear();
+                return;
+            }
+            if ("blockwright spline add".equals(command)) {
+                SPLINE_SELECTION.addPoint(playerPos);
+                ClientPreviewState.clear();
                 return;
             }
         }
-        if (!command.startsWith(REGION_SET_PREFIX)) {
+        if (command.startsWith(REGION_SET_PREFIX)) {
+            captureRegionSet(command);
+            ClientPreviewState.clear();
             return;
         }
+        if (command.startsWith(SPLINE_ADDPOS_PREFIX)) {
+            captureSplineAddPos(command);
+            ClientPreviewState.clear();
+        }
+    }
 
+    private static void captureRegionSet(String command) {
         String[] parts = command.substring(REGION_SET_PREFIX.length()).trim().split("\\s+");
         if (parts.length != 6) {
             return;
@@ -55,6 +96,22 @@ public final class ClientSelectionState {
                     Integer.parseInt(parts[3]),
                     Integer.parseInt(parts[4]),
                     Integer.parseInt(parts[5])
+            ));
+        } catch (NumberFormatException ignored) {
+        }
+    }
+
+    private static void captureSplineAddPos(String command) {
+        String[] parts = command.substring(SPLINE_ADDPOS_PREFIX.length()).trim().split("\\s+");
+        if (parts.length != 3) {
+            return;
+        }
+
+        try {
+            SPLINE_SELECTION.addPoint(new BlockPos(
+                    Integer.parseInt(parts[0]),
+                    Integer.parseInt(parts[1]),
+                    Integer.parseInt(parts[2])
             ));
         } catch (NumberFormatException ignored) {
         }
