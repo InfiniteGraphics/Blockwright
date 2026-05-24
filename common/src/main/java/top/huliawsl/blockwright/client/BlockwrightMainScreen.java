@@ -40,7 +40,7 @@ public final class BlockwrightMainScreen extends Screen {
     private final List<String> parameterKeys = new ArrayList<>();
 
     private int contentLeft;
-    private int top;
+    private int topY;
     private int panelBottom;
     private int leftWidth;
     private int middleWidth;
@@ -69,19 +69,19 @@ public final class BlockwrightMainScreen extends Screen {
         initLayout();
 
         addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePreset(-1))
-                .bounds(middleX + 12, top + 18, 24, 20)
+                .bounds(middleX + 12, topY + 18, 24, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePreset(1))
-                .bounds(middleX + middleWidth - 36, top + 18, 24, 20)
+                .bounds(middleX + middleWidth - 36, topY + 18, 24, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Reload"), button -> reloadPacks())
-                .bounds(rightX + 12, top + 18, rightWidth - 24, 20)
+                .bounds(rightX + 12, topY + 18, rightWidth - 24, 20)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Close"), button -> onClose())
-                .bounds(rightX + 12, top + 42, rightWidth - 24, 20)
+                .bounds(rightX + 12, topY + 42, rightWidth - 24, 20)
                 .build());
 
-        int regionY = top + 90;
+        int regionY = topY + 90;
         addRenderableWidget(Button.builder(Component.literal("Set P1"), button -> sendCommand("blockwright region pos1"))
                 .bounds(contentLeft + 12, regionY + 42, 70, 20)
                 .build());
@@ -92,7 +92,7 @@ public final class BlockwrightMainScreen extends Screen {
                 .bounds(contentLeft + 12, regionY + 66, 150, 20)
                 .build());
 
-        int splineY = top + 212;
+        int splineY = topY + 212;
         addRenderableWidget(Button.builder(Component.literal("Add"), button -> sendCommand("blockwright spline add"))
                 .bounds(contentLeft + 12, splineY + 30, 46, 20)
                 .build());
@@ -119,16 +119,16 @@ public final class BlockwrightMainScreen extends Screen {
         }
 
         previewButton = addRenderableWidget(Button.builder(Component.literal("Preview"), button -> sendPreviewCommand())
-                .bounds(rightX + 12, top + 94, rightWidth - 24, 20)
+                .bounds(rightX + 12, topY + 94, rightWidth - 24, 20)
                 .build());
         bakeButton = addRenderableWidget(Button.builder(Component.literal("Bake"), button -> sendCommand("blockwright bake"))
-                .bounds(rightX + 12, top + 118, rightWidth - 24, 20)
+                .bounds(rightX + 12, topY + 118, rightWidth - 24, 20)
                 .build());
         undoButton = addRenderableWidget(Button.builder(Component.literal("Undo"), button -> sendCommand("blockwright undo"))
-                .bounds(rightX + 12, top + 142, rightWidth - 24, 20)
+                .bounds(rightX + 12, topY + 142, rightWidth - 24, 20)
                 .build());
         clearPreviewButton = addRenderableWidget(Button.builder(Component.literal("Clear Preview"), button -> sendCommand("blockwright preview clear"))
-                .bounds(rightX + 12, top + 166, rightWidth - 24, 20)
+                .bounds(rightX + 12, topY + 166, rightWidth - 24, 20)
                 .build());
 
         layoutParameterFields();
@@ -140,9 +140,9 @@ public final class BlockwrightMainScreen extends Screen {
         renderBackground(guiGraphics);
         drawAtmosphere(guiGraphics);
 
-        drawPanel(guiGraphics, contentLeft, top, leftWidth, panelBottom - top);
-        drawPanel(guiGraphics, middleX, top, middleWidth, panelBottom - top);
-        drawPanel(guiGraphics, rightX, top, rightWidth, panelBottom - top);
+        drawPanel(guiGraphics, contentLeft, topY, leftWidth, panelBottom - topY);
+        drawPanel(guiGraphics, middleX, topY, middleWidth, panelBottom - topY);
+        drawPanel(guiGraphics, rightX, topY, rightWidth, panelBottom - topY);
 
         LoadedPack selectedPack = getSelectedPack();
         PresetDefinition preset = getSelectedPreset();
@@ -150,22 +150,22 @@ public final class BlockwrightMainScreen extends Screen {
         BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
         SplineSelection splineSelection = ClientSelectionState.getSplineSelection();
 
-        guiGraphics.drawString(this.font, this.title, contentLeft + 12, top - 12, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Input", contentLeft + 12, top + 8, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Preset", middleX + 12, top + 8, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Status", rightX + 12, top + 8, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, this.title, contentLeft + 12, topY - 12, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Input", contentLeft + 12, topY + 8, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Preset", middleX + 12, topY + 8, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Status", rightX + 12, topY + 8, TEXT_BRIGHT);
 
         guiGraphics.drawString(this.font, selectedPack == null ? "Pack: <none>" : "Pack: " + selectedPack.getMetadata().id,
-                middleX + 44, top + 22, TEXT_MUTED);
+                middleX + 44, topY + 22, TEXT_MUTED);
         guiGraphics.drawString(this.font, preset == null ? "Preset: <none>" : "Preset: " + preset.id,
-                middleX + 44, top + 34, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleX + 12, top + 58, TEXT_MUTED);
+                middleX + 44, topY + 34, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleX + 12, topY + 58, TEXT_MUTED);
 
-        drawRegionSection(guiGraphics, contentLeft + 12, top + 90, regionSelection);
-        drawSplineSection(guiGraphics, contentLeft + 12, top + 212, splineSelection);
+        drawRegionSection(guiGraphics, contentLeft + 12, topY + 90, regionSelection);
+        drawSplineSection(guiGraphics, contentLeft + 12, topY + 212, splineSelection);
         drawInputHints(guiGraphics, contentLeft + 12, panelBottom - 34);
         drawParameterLabels(guiGraphics, middleX + 12, preset);
-        drawStatusPanel(guiGraphics, rightX + 12, top + 204, rightWidth - 24, previewPlan, selectedPack);
+        drawStatusPanel(guiGraphics, rightX + 12, topY + 204, rightWidth - 24, previewPlan, selectedPack);
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         updateActionStates();
     }
@@ -197,14 +197,14 @@ public final class BlockwrightMainScreen extends Screen {
 
     private void initLayout() {
         contentLeft = Math.max(12, this.width / 2 - 286);
-        top = 18;
+        topY = 18;
         panelBottom = this.height - 18;
         leftWidth = 176;
         middleWidth = 230;
         rightWidth = 176;
         middleX = contentLeft + leftWidth + 10;
         rightX = middleX + middleWidth + 10;
-        parameterViewportTop = top + 112;
+        parameterViewportTop = topY + 112;
         parameterViewportBottom = panelBottom - 14;
     }
 
@@ -280,13 +280,13 @@ public final class BlockwrightMainScreen extends Screen {
     }
 
     private void drawParameterLabels(GuiGraphics guiGraphics, int x, PresetDefinition preset) {
-        guiGraphics.drawString(this.font, "Parameters", x, top + 88, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Parameters", x, topY + 88, TEXT_BRIGHT);
         if (preset == null) {
             guiGraphics.drawString(this.font, "No preset loaded.", x, parameterViewportTop, TEXT_MUTED);
             return;
         }
         if (maxParameterScroll > 0) {
-            guiGraphics.drawString(this.font, "Scroll", middleX + middleWidth - 44, top + 88, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "Scroll", middleX + middleWidth - 44, topY + 88, TEXT_MUTED);
         }
 
         int baseY = parameterViewportTop - parameterScroll;
