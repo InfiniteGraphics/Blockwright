@@ -158,7 +158,10 @@ public final class BlockwrightCommands {
 
     private static int previewGenerate(CommandContext<CommandSourceStack> command, String presetId, String rawOverrides) {
         CommandSourceStack source = command.getSource();
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
         BlockwrightPackManager.PresetLookup lookup = Blockwright.getPackManager().findPreset(presetId).orElse(null);
         if (lookup == null) {
@@ -194,14 +197,20 @@ public final class BlockwrightCommands {
     }
 
     private static int previewClear(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         Blockwright.getSessionManager().getOrCreate(player).setPreviewPlan(null);
         send(source, "Preview cleared.");
         return 1;
     }
 
     private static int bake(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
         PreviewPlan plan = session.getPreviewPlan();
         if (plan == null) {
@@ -219,7 +228,10 @@ public final class BlockwrightCommands {
     }
 
     private static int undo(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
         List<top.huliawsl.blockwright.world.UndoEntry> undoEntries = session.popUndo();
         if (undoEntries == null || undoEntries.isEmpty()) {
@@ -232,7 +244,10 @@ public final class BlockwrightCommands {
     }
 
     private static int setRegionCorner(CommandSourceStack source, boolean firstCorner) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
         if (firstCorner) {
             session.getRegionSelection().setPos1(player.blockPosition());
@@ -244,7 +259,11 @@ public final class BlockwrightCommands {
     }
 
     private static int setRegionCoordinates(CommandContext<CommandSourceStack> command) {
-        ServerPlayer player = command.getSource().getPlayerOrException();
+        CommandSourceStack source = command.getSource();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
         session.getRegionSelection().setPos1(new net.minecraft.core.BlockPos(
                 IntegerArgumentType.getInteger(command, "x1"),
@@ -256,54 +275,73 @@ public final class BlockwrightCommands {
                 IntegerArgumentType.getInteger(command, "y2"),
                 IntegerArgumentType.getInteger(command, "z2")
         ));
-        send(command.getSource(), "Region set: "
+        send(source, "Region set: "
                 + session.getRegionSelection().getMin().toShortString()
                 + " -> " + session.getRegionSelection().getMax().toShortString());
         return 1;
     }
 
     private static int clearRegion(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         Blockwright.getSessionManager().getOrCreate(player).getRegionSelection().clear();
         send(source, "Region selection cleared.");
         return 1;
     }
 
     private static int addSplinePoint(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().addPoint(player.blockPosition());
         send(source, "Added spline point " + player.blockPosition().toShortString() + ".");
         return 1;
     }
 
     private static int addSplineCoordinate(CommandContext<CommandSourceStack> command) {
-        ServerPlayer player = command.getSource().getPlayerOrException();
+        CommandSourceStack source = command.getSource();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         net.minecraft.core.BlockPos point = new net.minecraft.core.BlockPos(
                 IntegerArgumentType.getInteger(command, "x"),
                 IntegerArgumentType.getInteger(command, "y"),
                 IntegerArgumentType.getInteger(command, "z")
         );
         Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().addPoint(point);
-        send(command.getSource(), "Added spline point " + point.toShortString() + ".");
+        send(source, "Added spline point " + point.toShortString() + ".");
         return 1;
     }
 
     private static int removeSplinePoint(CommandSourceStack source, int index) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         boolean removed = Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().removeIndex(index);
         send(source, removed ? "Removed spline point #" + index + "." : "Spline point index out of range.");
         return removed ? 1 : 0;
     }
 
     private static int clearSpline(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().clear();
         send(source, "Spline cleared.");
         return 1;
     }
 
     private static int listSpline(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayerOrException();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
         List<String> points = Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().getPoints().stream()
                 .map(net.minecraft.core.BlockPos::toShortString)
                 .toList();
@@ -341,5 +379,13 @@ public final class BlockwrightCommands {
 
     private static void send(CommandSourceStack source, String message) {
         source.sendSuccess(() -> Component.literal(message), false);
+    }
+
+    private static ServerPlayer getPlayer(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
+            send(source, "This command can only be used by a player.");
+        }
+        return player;
     }
 }
