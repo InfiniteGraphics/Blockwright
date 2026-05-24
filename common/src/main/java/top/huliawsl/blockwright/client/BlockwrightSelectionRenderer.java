@@ -10,6 +10,7 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
 import top.huliawsl.blockwright.preview.PlannedBlock;
 import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.preview.PreviewSeverity;
@@ -83,10 +84,11 @@ public final class BlockwrightSelectionRenderer {
             blue = 0.32F;
         }
 
+        PoseStack.Pose pose = poseStack.last();
         for (PlannedBlock block : plan.getPlannedBlocks()) {
             BlockPos pos = block.getPos();
-            LevelRenderer.renderFilledBox(
-                    poseStack,
+            renderFilledBox(
+                    pose.pose(),
                     fillConsumer,
                     (float) (pos.getX() + PREVIEW_INSET),
                     (float) (pos.getY() + PREVIEW_INSET),
@@ -110,6 +112,35 @@ public final class BlockwrightSelectionRenderer {
                 blue,
                 0.9F
         );
+    }
+
+    private static void renderFilledBox(Matrix4f pose, VertexConsumer consumer,
+                                        float minX, float minY, float minZ,
+                                        float maxX, float maxY, float maxZ,
+                                        float red, float green, float blue, float alpha) {
+        addFace(consumer, pose, minX, minY, minZ, maxX, minY, minZ, maxX, maxY, minZ, minX, maxY, minZ, red, green, blue, alpha);
+        addFace(consumer, pose, minX, minY, maxZ, minX, maxY, maxZ, maxX, maxY, maxZ, maxX, minY, maxZ, red, green, blue, alpha);
+        addFace(consumer, pose, minX, minY, minZ, minX, maxY, minZ, minX, maxY, maxZ, minX, minY, maxZ, red, green, blue, alpha);
+        addFace(consumer, pose, maxX, minY, minZ, maxX, minY, maxZ, maxX, maxY, maxZ, maxX, maxY, minZ, red, green, blue, alpha);
+        addFace(consumer, pose, minX, maxY, minZ, maxX, maxY, minZ, maxX, maxY, maxZ, minX, maxY, maxZ, red, green, blue, alpha);
+        addFace(consumer, pose, minX, minY, minZ, minX, minY, maxZ, maxX, minY, maxZ, maxX, minY, minZ, red, green, blue, alpha);
+    }
+
+    private static void addFace(VertexConsumer consumer, Matrix4f pose,
+                                float x1, float y1, float z1,
+                                float x2, float y2, float z2,
+                                float x3, float y3, float z3,
+                                float x4, float y4, float z4,
+                                float red, float green, float blue, float alpha) {
+        addVertex(consumer, pose, x1, y1, z1, red, green, blue, alpha);
+        addVertex(consumer, pose, x2, y2, z2, red, green, blue, alpha);
+        addVertex(consumer, pose, x3, y3, z3, red, green, blue, alpha);
+        addVertex(consumer, pose, x4, y4, z4, red, green, blue, alpha);
+    }
+
+    private static void addVertex(VertexConsumer consumer, Matrix4f pose, float x, float y, float z,
+                                  float red, float green, float blue, float alpha) {
+        consumer.vertex(pose, x, y, z).color(red, green, blue, alpha).endVertex();
     }
 
     private static void renderCorner(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, float red, float green, float blue) {
