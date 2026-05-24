@@ -1,6 +1,7 @@
 package top.huliawsl.blockwright.preview;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
@@ -25,6 +26,10 @@ public final class PreviewPlan {
         plannedBlocks.add(new PlannedBlock(pos, state));
     }
 
+    public void addBlock(BlockPos pos, net.minecraft.world.level.block.state.BlockState state, CompoundTag blockEntityTag) {
+        plannedBlocks.add(new PlannedBlock(pos, state, blockEntityTag));
+    }
+
     public void addIssue(PreviewSeverity severity, String message) {
         issues.add(new PreviewIssue(severity, message));
     }
@@ -38,7 +43,7 @@ public final class PreviewPlan {
     }
 
     public boolean canBake() {
-        return issues.stream().noneMatch(issue -> issue.getSeverity() == PreviewSeverity.ERROR);
+        return !stale && issues.stream().noneMatch(issue -> issue.getSeverity() == PreviewSeverity.ERROR);
     }
 
     public PreviewSeverity getOverallSeverity() {

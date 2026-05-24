@@ -11,8 +11,13 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import top.huliawsl.blockwright.Blockwright;
+import top.huliawsl.blockwright.config.BlockwrightConfig;
 import top.huliawsl.blockwright.pack.BlockwrightPackManager;
+import top.huliawsl.blockwright.pack.ExportPackBootstrap;
 import top.huliawsl.blockwright.pack.LoadedPack;
+import top.huliawsl.blockwright.pack.SpongeSchematicData;
+import top.huliawsl.blockwright.pack.SpongeSchematicWriter;
+import top.huliawsl.blockwright.preview.PreviewSeverity;
 import top.huliawsl.blockwright.preview.PreviewIssue;
 import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.rule.PresetExecutionContext;
@@ -20,17 +25,20 @@ import top.huliawsl.blockwright.rule.PresetExecutor;
 import top.huliawsl.blockwright.rule.PresetExecutorRegistry;
 import top.huliawsl.blockwright.rule.model.RuleDefinition;
 import top.huliawsl.blockwright.session.PlayerSession;
+import top.huliawsl.blockwright.util.BlockwrightPaths;
+import top.huliawsl.blockwright.util.JsonHelper;
 import top.huliawsl.blockwright.util.ValidationIssue;
 import top.huliawsl.blockwright.world.StructurePlacer;
+import top.huliawsl.blockwright.module.model.ModuleDefinition;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public final class BlockwrightCommands {
-    private static final int MAX_UNDO_HISTORY = 8;
-
     private BlockwrightCommands() {
     }
 
@@ -82,6 +90,10 @@ public final class BlockwrightCommands {
                         .then(Commands.literal("list")
                                 .executes(command -> listPresets(command.getSource()))))
                 .then(Commands.literal("modules")
+                        .then(Commands.literal("list")
+                                .executes(command -> listModules(command.getSource(), ""))
+                                .then(Commands.argument("tag", StringArgumentType.word())
+                                        .executes(command -> listModules(command.getSource(), StringArgumentType.getString(command, "tag")))))
                         .then(Commands.literal("validate")
                                 .executes(command -> validateModules(command.getSource()))))
                 .then(Commands.literal("preset")
@@ -104,6 +116,10 @@ public final class BlockwrightCommands {
                 .then(Commands.literal("undo")
                         .requires(BlockwrightCommands::hasBuildPermission)
                         .executes(command -> undo(command.getSource())))
+                .then(Commands.literal("export-schem")
+                        .requires(BlockwrightCommands::hasBuildPermission)
+                        .then(Commands.argument("module_id", StringArgumentType.greedyString())
+                                .executes(command -> exportSchematic(command.getSource(), StringArgumentType.getString(command, "module_id")))))
                 .then(regionCommand)
                 .then(splineCommand));
     }
@@ -117,8 +133,10 @@ public final class BlockwrightCommands {
     }
 
     private static int reloadPacks(CommandSourceStack source) {
+        BlockwrightConfig.reload();
         Blockwright.getPackManager().reload();
-        send(source, "Reloaded " + Blockwright.getPackManager().getLoadedPackCount() + " preset pack(s).");
+        Blockwright.getSessionManager().markAllPreviewsStale();
+        send(source, "Reloaded " + Blockwright.getPackManager().getLoadedPackCount() + " preset pack(s) and refreshed config.");
         return 1;
     }
 
@@ -141,6 +159,23 @@ public final class BlockwrightCommands {
             send(source, "No validation issues.");
         }
         return issueCount;
+    }
+
+    private static int listModules(CommandSourceStack source, String tagFilter) {
+        List<String> moduleIds = Blockwright.getPackManager().getLoadedPacks().stream()
+                .flatMap(pack -> pack.getModules().values().stream())
+                .filter(module -> tagFilter == null || tagFilter.isBlank() || module.tags.contains(tagFilter))
+                .map(module -> module.id)
+                .sorted()
+                .toList();
+        if (moduleIds.isEmpty()) {
+            send(source, tagFilter == null || tagFilter.isBlank()
+                    ? "No modules loaded."
+                    : "No modules matched tag: " + tagFilter);
+            return 0;
+        }
+        send(source, "Loaded modules: " + String.join(", ", moduleIds));
+        return moduleIds.size();
     }
 
     private static int validatePreset(CommandSourceStack source, String presetId) {
@@ -178,6 +213,9 @@ public final class BlockwrightCommands {
             send(source, "No executor registered for rule type: " + rule.executor);
             return 0;
         }
+        if (!validateSelectionLimits(source, session)) {
+            return 0;
+        }
 
         PreviewPlan plan = executor.execute(new PresetExecutionContext(
                 player,
@@ -188,6 +226,10 @@ public final class BlockwrightCommands {
                 parseOverrides(rawOverrides),
                 lookup.pack().getModules()
         ));
+        int maxPreviewBlocks = BlockwrightConfig.get().maxPreviewBlocks;
+        if (plan.getPlannedBlocks().size() > maxPreviewBlocks) {
+            plan.addIssue(PreviewSeverity.ERROR, "Preview exceeds maxPreviewBlocks=" + maxPreviewBlocks + ".");
+        }
         session.setPreviewPlan(plan);
         send(source, "Preview generated for " + presetId + ": " + plan.getPlannedBlocks().size() + " block(s), severity=" + plan.getOverallSeverity());
         for (PreviewIssue issue : plan.getIssues()) {
@@ -218,14 +260,24 @@ public final class BlockwrightCommands {
             return 0;
         }
         if (!plan.canBake()) {
-            send(source, "Preview has errors and cannot be baked.");
+            send(source, plan.isStale() ? "Preview is stale and must be regenerated." : "Preview has errors and cannot be baked.");
             return 0;
         }
-        List<top.huliawsl.blockwright.world.UndoEntry> undoEntries = StructurePlacer.bake(player.serverLevel(), plan);
-        session.pushUndo(undoEntries, MAX_UNDO_HISTORY);
-        session.setPreviewPlan(null);
-        send(source, "Bake complete: " + undoEntries.size() + " block(s) captured for undo.");
-        return undoEntries.size();
+        int maxBakeBlocks = BlockwrightConfig.get().maxBakeBlocks;
+        if (plan.getPlannedBlocks().size() > maxBakeBlocks) {
+            send(source, "Preview exceeds maxBakeBlocks=" + maxBakeBlocks + ".");
+            return 0;
+        }
+        try {
+            List<top.huliawsl.blockwright.world.UndoEntry> undoEntries = StructurePlacer.bake(player.serverLevel(), plan);
+            session.pushUndo(undoEntries, BlockwrightConfig.get().maxUndoHistory);
+            session.setPreviewPlan(null);
+            send(source, "Bake complete: " + undoEntries.size() + " block(s) captured for undo.");
+            return undoEntries.size();
+        } catch (Exception exception) {
+            send(source, "Bake failed: " + exception.getMessage());
+            return 0;
+        }
     }
 
     private static int undo(CommandSourceStack source) {
@@ -255,6 +307,7 @@ public final class BlockwrightCommands {
         } else {
             session.getRegionSelection().setPos2(player.blockPosition());
         }
+        session.markPreviewStale();
         send(source, "Region " + (firstCorner ? "pos1" : "pos2") + " set to " + player.blockPosition().toShortString() + ".");
         return 1;
     }
@@ -276,6 +329,7 @@ public final class BlockwrightCommands {
                 IntegerArgumentType.getInteger(command, "y2"),
                 IntegerArgumentType.getInteger(command, "z2")
         ));
+        session.markPreviewStale();
         send(source, "Region set: "
                 + session.getRegionSelection().getMin().toShortString()
                 + " -> " + session.getRegionSelection().getMax().toShortString());
@@ -287,7 +341,9 @@ public final class BlockwrightCommands {
         if (player == null) {
             return 0;
         }
-        Blockwright.getSessionManager().getOrCreate(player).getRegionSelection().clear();
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        session.getRegionSelection().clear();
+        session.markPreviewStale();
         send(source, "Region selection cleared.");
         return 1;
     }
@@ -297,7 +353,13 @@ public final class BlockwrightCommands {
         if (player == null) {
             return 0;
         }
-        Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().addPoint(player.blockPosition());
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        if (session.getSplineSelection().getPoints().size() >= BlockwrightConfig.get().maxSplinePoints) {
+            send(source, "Spline point limit reached: " + BlockwrightConfig.get().maxSplinePoints);
+            return 0;
+        }
+        session.getSplineSelection().addPoint(player.blockPosition());
+        session.markPreviewStale();
         send(source, "Added spline point " + player.blockPosition().toShortString() + ".");
         return 1;
     }
@@ -313,7 +375,13 @@ public final class BlockwrightCommands {
                 IntegerArgumentType.getInteger(command, "y"),
                 IntegerArgumentType.getInteger(command, "z")
         );
-        Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().addPoint(point);
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        if (session.getSplineSelection().getPoints().size() >= BlockwrightConfig.get().maxSplinePoints) {
+            send(source, "Spline point limit reached: " + BlockwrightConfig.get().maxSplinePoints);
+            return 0;
+        }
+        session.getSplineSelection().addPoint(point);
+        session.markPreviewStale();
         send(source, "Added spline point " + point.toShortString() + ".");
         return 1;
     }
@@ -323,7 +391,11 @@ public final class BlockwrightCommands {
         if (player == null) {
             return 0;
         }
-        boolean removed = Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().removeIndex(index);
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        boolean removed = session.getSplineSelection().removeIndex(index);
+        if (removed) {
+            session.markPreviewStale();
+        }
         send(source, removed ? "Removed spline point #" + index + "." : "Spline point index out of range.");
         return removed ? 1 : 0;
     }
@@ -333,7 +405,9 @@ public final class BlockwrightCommands {
         if (player == null) {
             return 0;
         }
-        Blockwright.getSessionManager().getOrCreate(player).getSplineSelection().clear();
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        session.getSplineSelection().clear();
+        session.markPreviewStale();
         send(source, "Spline cleared.");
         return 1;
     }
@@ -348,6 +422,49 @@ public final class BlockwrightCommands {
                 .toList();
         send(source, points.isEmpty() ? "Spline has no control points." : "Spline points: " + String.join(" | ", points));
         return points.size();
+    }
+
+    private static int exportSchematic(CommandSourceStack source, String moduleId) {
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        if (!session.getRegionSelection().isComplete()) {
+            send(source, "Region selection is incomplete.");
+            return 0;
+        }
+        if (!validateSelectionLimits(source, session)) {
+            return 0;
+        }
+        String trimmedModuleId = moduleId == null ? "" : moduleId.trim();
+        if (trimmedModuleId.isBlank()) {
+            send(source, "module_id is required.");
+            return 0;
+        }
+
+        try {
+            Path packRoot = ExportPackBootstrap.ensureExportPack(BlockwrightPaths.ensurePresetRoot());
+            Path moduleDirectory = packRoot.resolve("modules").resolve(toModulePath(trimmedModuleId)).getParent();
+            if (moduleDirectory != null) {
+                Files.createDirectories(moduleDirectory);
+            }
+            String relativeBase = "modules/" + toModulePath(trimmedModuleId);
+            Path schemPath = packRoot.resolve(relativeBase + ".schem");
+            Path moduleJsonPath = packRoot.resolve(relativeBase + ".module.json");
+
+            SpongeSchematicData schematic = SpongeSchematicWriter.capture(player.serverLevel(), session.getRegionSelection());
+            SpongeSchematicWriter.write(schemPath, schematic, trimmedModuleId, player.getGameProfile().getName());
+            Files.writeString(moduleJsonPath, JsonHelper.GSON.toJson(createExportedModule(trimmedModuleId, session, relativeBase + ".schem")));
+
+            Blockwright.getPackManager().reload();
+            Blockwright.getSessionManager().markAllPreviewsStale();
+            send(source, "Exported module to " + relativeBase + ".schem and reloaded packs.");
+            return 1;
+        } catch (Exception exception) {
+            send(source, "Export failed: " + exception.getMessage());
+            return 0;
+        }
     }
 
     private static int printValidationIssues(CommandSourceStack source, LoadedPack pack) {
@@ -388,5 +505,41 @@ public final class BlockwrightCommands {
             send(source, "This command can only be used by a player.");
         }
         return player;
+    }
+
+    private static boolean validateSelectionLimits(CommandSourceStack source, PlayerSession session) {
+        if (session.getRegionSelection().isComplete()
+                && session.getRegionSelection().getVolume() > BlockwrightConfig.get().maxSelectionVolume) {
+            send(source, "Selection exceeds maxSelectionVolume=" + BlockwrightConfig.get().maxSelectionVolume + ".");
+            return false;
+        }
+        if (session.getSplineSelection().getPoints().size() > BlockwrightConfig.get().maxSplinePoints) {
+            send(source, "Spline exceeds maxSplinePoints=" + BlockwrightConfig.get().maxSplinePoints + ".");
+            return false;
+        }
+        return true;
+    }
+
+    private static ModuleDefinition createExportedModule(String moduleId, PlayerSession session, String schematicPath) {
+        ModuleDefinition definition = new ModuleDefinition();
+        definition.id = moduleId;
+        definition.moduleKind = "static_schem";
+        definition.sizePolicy = "fixed";
+        definition.placementRole = "detail";
+        definition.schematic = schematicPath;
+        definition.category = "exported";
+        definition.style = "exported";
+        definition.tags = List.of("exported");
+        definition.allowedRotations = List.of(0, 90, 180, 270);
+        definition.size = List.of(
+                session.getRegionSelection().getWidth(),
+                session.getRegionSelection().getHeight(),
+                session.getRegionSelection().getDepth()
+        );
+        return definition;
+    }
+
+    private static String toModulePath(String moduleId) {
+        return moduleId.replace(':', '/').replace('.', '/');
     }
 }

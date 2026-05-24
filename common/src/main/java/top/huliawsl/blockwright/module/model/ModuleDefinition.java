@@ -1,5 +1,7 @@
 package top.huliawsl.blockwright.module.model;
 
+import top.huliawsl.blockwright.pack.SpongeSchematicData;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,4 +23,5 @@ public final class ModuleDefinition {
     public ModuleConstraints constraints = new ModuleConstraints();
     public String generator;
     public transient Path sourcePath;
+    public transient SpongeSchematicData schematicData;
 }

@@ -2,12 +2,17 @@ package top.huliawsl.blockwright.pack;
 
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.module.model.ModuleDefinition;
+import top.huliawsl.blockwright.module.model.ModuleConnector;
 import top.huliawsl.blockwright.pack.model.PackMetadata;
 import top.huliawsl.blockwright.preset.model.PresetDefinition;
+import top.huliawsl.blockwright.preset.model.PresetInputDefinition;
+import top.huliawsl.blockwright.preset.model.PresetParameterDefinition;
 import top.huliawsl.blockwright.rule.model.RuleDefinition;
 import top.huliawsl.blockwright.util.BlockwrightPaths;
 import top.huliawsl.blockwright.util.JsonHelper;
 import top.huliawsl.blockwright.util.ValidationReport;
+import top.huliawsl.blockwright.world.BlockResolver;
+import dev.architectury.platform.Platform;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -82,13 +87,23 @@ public final class BlockwrightPackManager {
 
         try (Reader reader = Files.newBufferedReader(packJson)) {
             PackMetadata metadata = JsonHelper.GSON.fromJson(reader, PackMetadata.class);
+            if (metadata == null) {
+                metadata = new PackMetadata();
+                metadata.id = packRoot.getFileName().toString();
+            }
             LoadedPack loadedPack = new LoadedPack(packRoot, metadata);
             validatePackMetadata(loadedPack.getValidationReport(), metadata, packRoot);
             loadModules(loadedPack);
             loadRules(loadedPack);
             loadPresets(loadedPack);
+            if (metadata.id != null && loadedPacks.containsKey(metadata.id)) {
+                loadedPack.getValidationReport().error(metadata.id, "Duplicate pack id: " + metadata.id);
+            }
             loadedPacks.put(metadata.id, loadedPack);
             for (String presetId : loadedPack.getPresets().keySet()) {
+                if (presetIndex.containsKey(presetId)) {
+                    loadedPack.getValidationReport().error(presetId, "Duplicate preset id across packs: " + presetId);
+                }
                 presetIndex.put(presetId, loadedPack);
             }
         } catch (Exception exception) {
@@ -108,6 +123,17 @@ public final class BlockwrightPackManager {
         if (metadata.minecraftVersions == null || !metadata.minecraftVersions.contains("1.20.1")) {
             report.warning(location, "minecraftVersions does not explicitly include 1.20.1.");
         }
+        if (metadata.requiredMods != null) {
+            for (String requiredMod : metadata.requiredMods) {
+                if (!"minecraft".equals(requiredMod) && !Platform.isModLoaded(requiredMod)) {
+                    report.error(location, "Missing required mod: " + requiredMod);
+                }
+            }
+        }
+        if (metadata.entrypoints == null) {
+            report.error(location, "entrypoints is missing.");
+            metadata.entrypoints = new top.huliawsl.blockwright.pack.model.PackEntrypoints();
+        }
     }
 
     private void loadModules(LoadedPack loadedPack) {
@@ -121,7 +147,20 @@ public final class BlockwrightPackManager {
             stream.filter(path -> path.toString().endsWith(".module.json")).forEach(path -> {
                 try (Reader reader = Files.newBufferedReader(path)) {
                     ModuleDefinition definition = JsonHelper.GSON.fromJson(reader, ModuleDefinition.class);
+                    if (definition == null) {
+                        loadedPack.getValidationReport().error(path.toString(), "Module metadata is empty.");
+                        return;
+                    }
+                    normalizeModule(definition);
                     definition.sourcePath = path;
+                    if (definition.id == null || definition.id.isBlank()) {
+                        loadedPack.getValidationReport().error(path.toString(), "Module id is missing.");
+                        return;
+                    }
+                    if (loadedPack.getModules().containsKey(definition.id)) {
+                        loadedPack.getValidationReport().error(definition.id, "Duplicate module id in pack.");
+                        return;
+                    }
                     loadedPack.getModules().put(definition.id, definition);
                     validateModule(loadedPack, definition);
                 } catch (Exception exception) {
@@ -144,16 +183,27 @@ public final class BlockwrightPackManager {
                 return;
             }
             try {
-                SpongeSchematicMetadata metadata = SpongeSchematicReader.readMetadata(schematicPath);
+                SpongeSchematicData data = SpongeSchematicReader.read(schematicPath);
+                definition.schematicData = data;
+                SpongeSchematicMetadata metadata = new SpongeSchematicMetadata(data.getWidth(), data.getHeight(), data.getLength());
                 if (definition.size.size() == 3 &&
                         (definition.size.get(0) != metadata.getWidth()
                                 || definition.size.get(1) != metadata.getHeight()
                                 || definition.size.get(2) != metadata.getLength())) {
                     loadedPack.getValidationReport().warning(definition.id, "Module size does not match schematic size.");
                 }
+                for (String missingBlockState : data.getMissingBlockStates()) {
+                    loadedPack.getValidationReport().error(definition.id, "Missing blockstate in runtime registry: " + missingBlockState);
+                }
             } catch (Exception exception) {
                 loadedPack.getValidationReport().error(definition.id, "Failed to read schematic: " + exception.getMessage());
             }
+        }
+        if (definition.size.size() != 3) {
+            loadedPack.getValidationReport().warning(definition.id, "Module size should contain exactly 3 values.");
+        }
+        for (ModuleConnector connector : definition.connectors) {
+            validateConnector(loadedPack, definition, connector);
         }
     }
 
@@ -168,8 +218,18 @@ public final class BlockwrightPackManager {
             stream.filter(path -> path.toString().endsWith(".rule.json")).forEach(path -> {
                 try (Reader reader = Files.newBufferedReader(path)) {
                     RuleDefinition definition = JsonHelper.GSON.fromJson(reader, RuleDefinition.class);
+                    if (definition == null) {
+                        loadedPack.getValidationReport().error(path.toString(), "Rule definition is empty.");
+                        return;
+                    }
+                    normalizeRule(definition);
                     definition.sourcePath = path;
-                    loadedPack.getRules().put(pathRelativeToPack(loadedPack, path), definition);
+                    String ruleKey = pathRelativeToPack(loadedPack, path);
+                    if (loadedPack.getRules().containsKey(ruleKey)) {
+                        loadedPack.getValidationReport().error(ruleKey, "Duplicate rule file path.");
+                        return;
+                    }
+                    loadedPack.getRules().put(ruleKey, definition);
                 } catch (Exception exception) {
                     loadedPack.getValidationReport().error(path.toString(), "Failed to parse rule: " + exception.getMessage());
                 }
@@ -190,7 +250,20 @@ public final class BlockwrightPackManager {
             stream.filter(path -> path.toString().endsWith(".preset.json")).forEach(path -> {
                 try (Reader reader = Files.newBufferedReader(path)) {
                     PresetDefinition definition = JsonHelper.GSON.fromJson(reader, PresetDefinition.class);
+                    if (definition == null) {
+                        loadedPack.getValidationReport().error(path.toString(), "Preset definition is empty.");
+                        return;
+                    }
+                    normalizePreset(definition);
                     definition.sourcePath = path;
+                    if (definition.id == null || definition.id.isBlank()) {
+                        loadedPack.getValidationReport().error(path.toString(), "Preset id is missing.");
+                        return;
+                    }
+                    if (loadedPack.getPresets().containsKey(definition.id)) {
+                        loadedPack.getValidationReport().error(definition.id, "Duplicate preset id in pack.");
+                        return;
+                    }
                     loadedPack.getPresets().put(definition.id, definition);
                     validatePreset(loadedPack, definition);
                 } catch (Exception exception) {
@@ -214,10 +287,103 @@ public final class BlockwrightPackManager {
         if (!loadedPack.getRules().containsKey(definition.rule)) {
             loadedPack.getValidationReport().error(definition.id, "Referenced rule file was not loaded: " + definition.rule);
         }
+        for (PresetInputDefinition input : definition.inputs) {
+            if (!"box_region".equals(input.type) && !"spline".equals(input.type)) {
+                loadedPack.getValidationReport().error(definition.id, "Unsupported input type: " + input.type);
+            }
+        }
+        for (Map.Entry<String, PresetParameterDefinition> entry : definition.parameters.entrySet()) {
+            validateParameter(loadedPack, definition, entry.getKey(), entry.getValue());
+        }
     }
 
     private String pathRelativeToPack(LoadedPack loadedPack, Path path) {
         return loadedPack.getRoot().relativize(path).toString().replace('\\', '/');
+    }
+
+    private void validateConnector(LoadedPack loadedPack, ModuleDefinition definition, ModuleConnector connector) {
+        if (definition.size.size() != 3 || connector.offset.size() != 3 || connector.size.size() != 3) {
+            loadedPack.getValidationReport().warning(definition.id, "Connector " + connector.id + " is missing complete offset/size.");
+            return;
+        }
+        for (int i = 0; i < 3; i++) {
+            int offset = connector.offset.get(i);
+            int size = connector.size.get(i);
+            int max = definition.size.get(i);
+            if (offset < 0 || size < 1 || offset + size > max) {
+                loadedPack.getValidationReport().error(definition.id, "Connector " + connector.id + " is outside module bounds.");
+                return;
+            }
+        }
+    }
+
+    private void validateParameter(LoadedPack loadedPack, PresetDefinition preset, String key, PresetParameterDefinition definition) {
+        if (definition == null) {
+            loadedPack.getValidationReport().error(preset.id, "Parameter " + key + " is null.");
+            return;
+        }
+        if (definition.defaultValue == null) {
+            return;
+        }
+        if ("string".equals(definition.type) || "tag".equals(definition.type)) {
+            if (!definition.defaultValue.isJsonPrimitive() || !definition.defaultValue.getAsJsonPrimitive().isString()) {
+                loadedPack.getValidationReport().error(preset.id, "Parameter " + key + " default must be a string.");
+            }
+            return;
+        }
+        if (!definition.defaultValue.isJsonPrimitive() || !definition.defaultValue.getAsJsonPrimitive().isNumber()) {
+            loadedPack.getValidationReport().error(preset.id, "Parameter " + key + " default must be numeric.");
+            return;
+        }
+        double value = definition.defaultValue.getAsDouble();
+        if (definition.min != null && value < definition.min) {
+            loadedPack.getValidationReport().error(preset.id, "Parameter " + key + " default is below min.");
+        }
+        if (definition.max != null && value > definition.max) {
+            loadedPack.getValidationReport().error(preset.id, "Parameter " + key + " default is above max.");
+        }
+        if ("block_state".equals(definition.type) && !BlockResolver.exists(definition.defaultValue.getAsString())) {
+            loadedPack.getValidationReport().error(preset.id, "Parameter " + key + " default blockstate is invalid.");
+        }
+    }
+
+    private void normalizeModule(ModuleDefinition definition) {
+        if (definition == null) {
+            return;
+        }
+        if (definition.size == null) {
+            definition.size = new ArrayList<>();
+        }
+        if (definition.tags == null) {
+            definition.tags = new ArrayList<>();
+        }
+        if (definition.allowedRotations == null) {
+            definition.allowedRotations = new ArrayList<>();
+        }
+        if (definition.connectors == null) {
+            definition.connectors = new ArrayList<>();
+        }
+        if (definition.constraints == null) {
+            definition.constraints = new top.huliawsl.blockwright.module.model.ModuleConstraints();
+        }
+    }
+
+    private void normalizePreset(PresetDefinition definition) {
+        if (definition == null) {
+            return;
+        }
+        if (definition.inputs == null) {
+            definition.inputs = new ArrayList<>();
+        }
+        if (definition.parameters == null) {
+            definition.parameters = new LinkedHashMap<>();
+        }
+    }
+
+    private void normalizeRule(RuleDefinition definition) {
+        if (definition != null && definition.config == null) {
+            definition.config = new com.google.gson.JsonObject();
+        }
     }
 
     public record PresetLookup(LoadedPack pack, PresetDefinition preset) {

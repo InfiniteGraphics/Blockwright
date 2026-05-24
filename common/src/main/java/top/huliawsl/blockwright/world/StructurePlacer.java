@@ -29,8 +29,21 @@ public final class StructurePlacer {
             undoEntries.add(new UndoEntry(pos, level.getBlockState(pos), tag));
         }
 
-        for (PlannedBlock block : uniqueBlocks.values()) {
-            level.setBlock(block.getPos(), block.getState(), 3);
+        List<UndoEntry> appliedEntries = new ArrayList<>();
+        try {
+            for (PlannedBlock block : uniqueBlocks.values()) {
+                if (!level.setBlock(block.getPos(), block.getState(), 3)) {
+                    throw new IllegalStateException("Failed to place block at " + block.getPos().toShortString());
+                }
+                applyBlockEntity(level, block);
+                UndoEntry undoEntry = findUndoEntry(undoEntries, block.getPos());
+                if (undoEntry != null) {
+                    appliedEntries.add(undoEntry);
+                }
+            }
+        } catch (Exception exception) {
+            undo(level, appliedEntries);
+            throw exception;
         }
 
         return undoEntries;
@@ -39,14 +52,42 @@ public final class StructurePlacer {
     public static void undo(ServerLevel level, List<UndoEntry> undoEntries) {
         for (UndoEntry entry : undoEntries) {
             level.setBlock(entry.getPos(), entry.getOldState(), 3);
-            CompoundTag tag = entry.getOldBlockEntityTag();
-            if (tag != null) {
-                BlockEntity blockEntity = level.getBlockEntity(entry.getPos());
-                if (blockEntity != null) {
-                    blockEntity.load(tag);
-                    blockEntity.setChanged();
-                }
+            applyBlockEntity(level, entry.getPos(), entry.getOldState(), entry.getOldBlockEntityTag());
+        }
+    }
+
+    private static void applyBlockEntity(ServerLevel level, PlannedBlock block) {
+        applyBlockEntity(level, block.getPos(), block.getState(), block.getBlockEntityTag());
+    }
+
+    private static void applyBlockEntity(ServerLevel level, BlockPos pos, net.minecraft.world.level.block.state.BlockState state, CompoundTag tag) {
+        if (tag == null) {
+            BlockEntity existing = level.getBlockEntity(pos);
+            if (existing != null) {
+                existing.setRemoved();
+                level.removeBlockEntity(pos);
+            }
+            return;
+        }
+        CompoundTag copy = tag.copy();
+        copy.putInt("x", pos.getX());
+        copy.putInt("y", pos.getY());
+        copy.putInt("z", pos.getZ());
+        BlockEntity blockEntity = BlockEntity.loadStatic(pos, state, copy);
+        if (blockEntity == null) {
+            return;
+        }
+        blockEntity.setLevel(level);
+        level.setBlockEntity(blockEntity);
+        blockEntity.setChanged();
+    }
+
+    private static UndoEntry findUndoEntry(List<UndoEntry> undoEntries, BlockPos pos) {
+        for (UndoEntry undoEntry : undoEntries) {
+            if (undoEntry.getPos().equals(pos)) {
+                return undoEntry;
             }
         }
+        return null;
     }
 }

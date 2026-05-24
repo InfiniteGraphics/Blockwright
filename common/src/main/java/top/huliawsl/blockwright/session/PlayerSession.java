@@ -32,6 +32,12 @@ public final class PlayerSession {
         this.previewPlan = previewPlan;
     }
 
+    public void markPreviewStale() {
+        if (previewPlan != null) {
+            previewPlan.setStale(true);
+        }
+    }
+
     public void pushUndo(List<UndoEntry> entries, int maxHistory) {
         undoHistory.push(new ArrayList<>(entries));
         while (undoHistory.size() > maxHistory) {

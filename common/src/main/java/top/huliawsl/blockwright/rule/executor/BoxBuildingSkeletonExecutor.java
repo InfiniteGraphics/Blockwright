@@ -1,13 +1,20 @@
 package top.huliawsl.blockwright.rule.executor;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
+import top.huliawsl.blockwright.module.model.ModuleDefinition;
 import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.preview.PreviewSeverity;
+import top.huliawsl.blockwright.rule.ModuleHelper;
 import top.huliawsl.blockwright.rule.PresetExecutionContext;
 import top.huliawsl.blockwright.rule.PresetExecutor;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 import top.huliawsl.blockwright.world.BlockResolver;
+
+import java.util.List;
 
 public final class BoxBuildingSkeletonExecutor implements PresetExecutor {
     @Override
@@ -29,6 +36,8 @@ public final class BoxBuildingSkeletonExecutor implements PresetExecutor {
 
         int floors = Math.max(1, getInt(context, "floors", 3));
         int floorHeight = Math.max(3, getInt(context, "floorHeight", 4));
+        long seed = getLong(context, "seed", 0L);
+        String style = getString(context, "style", "");
 
         BlockPos min = region.getMin();
         BlockPos max = region.getMax();
@@ -59,7 +68,39 @@ public final class BoxBuildingSkeletonExecutor implements PresetExecutor {
             }
         }
 
+        addWindowModules(context, plan, min, max, floorHeight, floors, seed, style);
         return plan;
+    }
+
+    private void addWindowModules(PresetExecutionContext context, PreviewPlan plan, BlockPos min, BlockPos max,
+                                  int floorHeight, int floors, long seed, String style) {
+        String windowTag = context.getRule().config.has("windowTag") ? context.getRule().config.get("windowTag").getAsString() : "";
+        if (windowTag.isBlank()) {
+            return;
+        }
+        List<ModuleDefinition> windowModules = ModuleHelper.findTaggedModules(context.getModules(), windowTag, style);
+        if (windowModules.isEmpty()) {
+            plan.addIssue(PreviewSeverity.WARNING, "No static window modules matched tag=" + windowTag + ".");
+            return;
+        }
+
+        RandomSource random = RandomSource.create(seed == 0L ? Mth.getSeed(min) : seed);
+        for (int floor = 0; floor < floors; floor++) {
+            int baseY = min.getY() + 1 + floor * floorHeight;
+            if (baseY + 1 > max.getY() - 1) {
+                continue;
+            }
+            for (int x = min.getX() + 2; x <= max.getX() - 2; x += 3) {
+                ModuleDefinition module = ModuleHelper.pickWeighted(windowModules, random);
+                ModuleHelper.appendSchematic(plan, module, new BlockPos(x, baseY, min.getZ()), Rotation.NONE, true);
+                ModuleHelper.appendSchematic(plan, module, new BlockPos(x, baseY, max.getZ()), Rotation.CLOCKWISE_180, true);
+            }
+            for (int z = min.getZ() + 2; z <= max.getZ() - 2; z += 3) {
+                ModuleDefinition module = ModuleHelper.pickWeighted(windowModules, random);
+                ModuleHelper.appendSchematic(plan, module, new BlockPos(min.getX(), baseY, z), Rotation.COUNTERCLOCKWISE_90, true);
+                ModuleHelper.appendSchematic(plan, module, new BlockPos(max.getX(), baseY, z), Rotation.CLOCKWISE_90, true);
+            }
+        }
     }
 
     private int getInt(PresetExecutionContext context, String key, int fallback) {
@@ -77,5 +118,17 @@ public final class BoxBuildingSkeletonExecutor implements PresetExecutor {
     private String getString(PresetExecutionContext context, String key, String fallback) {
         String override = context.getOverrides().get(key);
         return override == null || override.isBlank() ? fallback : override;
+    }
+
+    private long getLong(PresetExecutionContext context, String key, long fallback) {
+        String override = context.getOverrides().get(key);
+        if (override == null || override.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(override);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 }

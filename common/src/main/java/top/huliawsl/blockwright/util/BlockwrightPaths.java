@@ -19,6 +19,10 @@ public final class BlockwrightPaths {
         return getGameDirectory().resolve(PRESET_FOLDER_NAME);
     }
 
+    public static Path getConfigDirectory() {
+        return getGameDirectory().resolve("config");
+    }
+
     public static Path ensurePresetRoot() {
         Path path = getPresetRoot();
         try {

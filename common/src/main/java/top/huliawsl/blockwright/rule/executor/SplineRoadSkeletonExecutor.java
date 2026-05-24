@@ -1,9 +1,14 @@
 package top.huliawsl.blockwright.rule.executor;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
+import top.huliawsl.blockwright.module.model.ModuleDefinition;
 import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.preview.PreviewSeverity;
+import top.huliawsl.blockwright.rule.ModuleHelper;
 import top.huliawsl.blockwright.rule.PresetExecutionContext;
 import top.huliawsl.blockwright.rule.PresetExecutor;
 import top.huliawsl.blockwright.selection.SplineSelection;
@@ -30,6 +35,8 @@ public final class SplineRoadSkeletonExecutor implements PresetExecutor {
         }
 
         int width = Math.max(1, getInt(context, "roadWidth", 5));
+        String style = getString(context, "style", "");
+        long seed = getLong(context, "seed", 0L);
         List<BlockPos> rasterized = rasterize(spline.getPoints());
         for (BlockPos center : rasterized) {
             int half = width / 2;
@@ -40,7 +47,31 @@ public final class SplineRoadSkeletonExecutor implements PresetExecutor {
             }
         }
 
+        addRoadLampModules(context, plan, rasterized, width, style, seed);
         return plan;
+    }
+
+    private void addRoadLampModules(PresetExecutionContext context, PreviewPlan plan, List<BlockPos> rasterized,
+                                    int width, String style, long seed) {
+        String roadLampTag = context.getRule().config.has("roadLampTag") ? context.getRule().config.get("roadLampTag").getAsString() : "";
+        if (roadLampTag.isBlank()) {
+            return;
+        }
+        List<ModuleDefinition> roadLampModules = ModuleHelper.findTaggedModules(context.getModules(), roadLampTag, style);
+        if (roadLampModules.isEmpty()) {
+            plan.addIssue(PreviewSeverity.WARNING, "No static road lamp modules matched tag=" + roadLampTag + ".");
+            return;
+        }
+
+        RandomSource random = RandomSource.create(seed == 0L ? Mth.getSeed(rasterized.get(0)) : seed);
+        int sideOffset = Math.max(2, width / 2 + 1);
+        for (int index = 3; index < rasterized.size(); index += 6) {
+            BlockPos center = rasterized.get(index);
+            ModuleDefinition module = ModuleHelper.pickWeighted(roadLampModules, random);
+            Rotation rotation = random.nextBoolean() ? Rotation.NONE : Rotation.CLOCKWISE_180;
+            int side = random.nextBoolean() ? 1 : -1;
+            ModuleHelper.appendSchematic(plan, module, center.offset(side * sideOffset, 0, 0), rotation, true);
+        }
     }
 
     private List<BlockPos> rasterize(List<BlockPos> points) {
@@ -79,5 +110,17 @@ public final class SplineRoadSkeletonExecutor implements PresetExecutor {
     private String getString(PresetExecutionContext context, String key, String fallback) {
         String override = context.getOverrides().get(key);
         return override == null || override.isBlank() ? fallback : override;
+    }
+
+    private long getLong(PresetExecutionContext context, String key, long fallback) {
+        String override = context.getOverrides().get(key);
+        if (override == null || override.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(override);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 }

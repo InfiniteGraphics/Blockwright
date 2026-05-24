@@ -12,4 +12,8 @@ public final class BlockwrightSessionManager {
     public PlayerSession getOrCreate(ServerPlayer player) {
         return sessions.computeIfAbsent(player.getUUID(), ignored -> new PlayerSession());
     }
+
+    public void markAllPreviewsStale() {
+        sessions.values().forEach(PlayerSession::markPreviewStale);
+    }
 }

@@ -4,6 +4,7 @@ import dev.architectury.event.events.common.CommandRegistrationEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.huliawsl.blockwright.command.BlockwrightCommands;
+import top.huliawsl.blockwright.config.BlockwrightConfig;
 import top.huliawsl.blockwright.pack.BlockwrightPackManager;
 import top.huliawsl.blockwright.session.BlockwrightSessionManager;
 
@@ -24,6 +25,7 @@ public final class Blockwright {
         }
         initialized = true;
 
+        BlockwrightConfig.reload();
         PACK_MANAGER.reload();
         CommandRegistrationEvent.EVENT.register(BlockwrightCommands::register);
         LOGGER.info("Initialized Blockwright with {} loaded preset pack(s).", PACK_MANAGER.getLoadedPackCount());
