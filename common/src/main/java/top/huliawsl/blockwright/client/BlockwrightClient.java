@@ -27,6 +27,9 @@ public final class BlockwrightClient {
 
         KeyMappingRegistry.register(OPEN_SCREEN);
         ClientTickEvent.CLIENT_POST.register(client -> {
+            if (client.level == null || client.player == null) {
+                ClientSelectionState.clearRegion();
+            }
             while (OPEN_SCREEN.consumeClick()) {
                 client.setScreen(new BlockwrightMainScreen());
             }

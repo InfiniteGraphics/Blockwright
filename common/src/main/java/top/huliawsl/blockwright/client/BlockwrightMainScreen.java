@@ -5,11 +5,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.pack.LoadedPack;
 import top.huliawsl.blockwright.preset.model.PresetDefinition;
 import top.huliawsl.blockwright.preset.model.PresetParameterDefinition;
+import top.huliawsl.blockwright.selection.BoxRegionSelection;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -85,7 +87,7 @@ public final class BlockwrightMainScreen extends Screen {
             return;
         }
 
-        int y = top + 118;
+        int y = top + 150;
         for (Map.Entry<String, PresetParameterDefinition> entry : preset.parameters.entrySet()) {
             if (!entry.getValue().exposed) {
                 continue;
@@ -107,14 +109,29 @@ public final class BlockwrightMainScreen extends Screen {
         int left = this.width / 2 - 150;
         LoadedPack selectedPack = getSelectedPack();
         PresetDefinition preset = getSelectedPreset();
+        BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
 
         guiGraphics.drawString(this.font, this.title, left, 10, 0xFFFFFF);
-        guiGraphics.drawString(this.font, "Pack: " + (selectedPack == null ? "<none>" : selectedPack.getMetadata().id), left, 96, 0xA0A0A0);
-        guiGraphics.drawString(this.font, "Preset: " + (preset == null ? "<none>" : preset.id), left, 108, 0xFFFFFF);
-        guiGraphics.drawString(this.font, "Use current player position for Region P1/P2 and Spline Add.", left, this.height - 38, 0xA0A0A0);
-        guiGraphics.drawString(this.font, "Preview/Bake flows through /blockwright commands.", left, this.height - 26, 0xA0A0A0);
+        guiGraphics.drawString(this.font, "Pack: " + (selectedPack == null ? "<none>" : selectedPack.getMetadata().id), left, 118, 0xA0A0A0);
+        guiGraphics.drawString(this.font, "Preset: " + (preset == null ? "<none>" : preset.id), left, 130, 0xFFFFFF);
+        guiGraphics.drawString(this.font, "Region P1: " + formatPos(regionSelection.getPos1()), left, 142, 0xF2C93D);
+        guiGraphics.drawString(this.font, "Region P2: " + formatPos(regionSelection.getPos2()), left, 154, 0x3DC9F2);
+        guiGraphics.drawString(this.font, "1. 站到第一个角点，点 Region P1。 2. 站到对角点，点 Region P2。", left, this.height - 50, 0xA0A0A0);
+        guiGraphics.drawString(this.font, "3. 选 preset 和参数后点 Preview。 4. 确认没问题再点 Bake。", left, this.height - 38, 0xA0A0A0);
+        guiGraphics.drawString(this.font, "当前版本的世界内 outline 只跟随 GUI 按钮同步。", left, this.height - 26, 0xA0A0A0);
 
-        int y = 148;
+        if (regionSelection.isComplete()) {
+            guiGraphics.drawString(
+                    this.font,
+                    "Region Size: " + regionSelection.getWidth() + " x " + regionSelection.getHeight() + " x " + regionSelection.getDepth()
+                            + " (" + regionSelection.getVolume() + " blocks)",
+                    left,
+                    166,
+                    0x7CFF92
+            );
+        }
+
+        int y = 180;
         for (int i = 0; i < parameterKeys.size(); i++) {
             guiGraphics.drawString(this.font, parameterKeys.get(i), left, y + 5, 0xFFFFFF);
             y += 24;
@@ -176,6 +193,11 @@ public final class BlockwrightMainScreen extends Screen {
         if (minecraft.player == null || minecraft.player.connection == null) {
             return;
         }
+        ClientSelectionState.captureCommand(command, minecraft.player.blockPosition());
         minecraft.player.connection.sendCommand(command);
+    }
+
+    private static String formatPos(BlockPos pos) {
+        return pos == null ? "<unset>" : pos.toShortString();
     }
 }
