@@ -12,6 +12,9 @@ public final class PcgEditorViewportNavigator {
         if (!session.isOpen() || !session.isNavigating() || minecraft.player == null || minecraft.screen == null) {
             return;
         }
+        if (minecraft.screen instanceof PcgEditorScreen) {
+            return;
+        }
 
         LocalPlayer player = minecraft.player;
         double speed = minecraft.options.keySprint.isDown() ? 1.6D : 0.55D;

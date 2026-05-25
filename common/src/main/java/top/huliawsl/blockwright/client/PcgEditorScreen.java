@@ -57,7 +57,7 @@ public final class PcgEditorScreen extends Screen {
     private static final int INSET = 10;
     private static final int TOP_BAR_HEIGHT = 48;
     private static final int LEFT_BAR_WIDTH = 126;
-    private static final int RIGHT_PANEL_WIDTH = 470;
+    private static final int RIGHT_PANEL_WIDTH = 720;
     private static final int BOTTOM_BAR_HEIGHT = 128;
     private static final int TOP_BUTTON_HEIGHT = 22;
     private static final int TOOL_BUTTON_HEIGHT = 96;
@@ -79,6 +79,8 @@ public final class PcgEditorScreen extends Screen {
     private LayoutRect leftBar;
     private LayoutRect viewport;
     private LayoutRect rightPanel;
+    private LayoutRect detailsPanel;
+    private LayoutRect previewDockPanel;
     private LayoutRect bottomBar;
     private LayoutRect parameterViewport;
     private LayoutRect moduleListViewport;
@@ -122,6 +124,13 @@ public final class PcgEditorScreen extends Screen {
     private int maxLogScroll;
     private double navigationMouseX;
     private double navigationMouseY;
+    private boolean navForward;
+    private boolean navBack;
+    private boolean navLeft;
+    private boolean navRight;
+    private boolean navUp;
+    private boolean navDown;
+    private boolean navFast;
 
     private boolean showBakeConfirm;
     private String uiSignature = "";
@@ -154,6 +163,9 @@ public final class PcgEditorScreen extends Screen {
             layoutParameterFields();
             clampLogScroll();
             refreshVisibleModules();
+        }
+        if (session.isNavigating()) {
+            tickNavigationMovement();
         }
     }
 
@@ -261,6 +273,11 @@ public final class PcgEditorScreen extends Screen {
             }
         }
 
+        if (keyCode == GLFW.GLFW_KEY_G) {
+            onClose();
+            return true;
+        }
+
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             if (session.isNavigating()) {
                 stopNavigation();
@@ -269,6 +286,10 @@ public final class PcgEditorScreen extends Screen {
             } else {
                 onClose();
             }
+            return true;
+        }
+
+        if (handleNavigationKey(keyCode, true)) {
             return true;
         }
 
@@ -316,6 +337,14 @@ public final class PcgEditorScreen extends Screen {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+        if (handleNavigationKey(keyCode, false)) {
+            return true;
+        }
+        return super.keyReleased(keyCode, scanCode, modifiers);
     }
 
     @Override
@@ -406,23 +435,21 @@ public final class PcgEditorScreen extends Screen {
         topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, TOP_BAR_HEIGHT);
         bottomBar = new LayoutRect(OUTER_PAD, this.height - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
         int actualLeftWidth = Math.max(112, Math.min(LEFT_BAR_WIDTH, this.width / 7));
-        int maxRightWidth = Math.max(340, this.width / 3);
-        int actualRightWidth = Math.max(356, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
-        int maxAllowedRight = Math.max(320, rootWidth - actualLeftWidth - 360 - GAP * 2);
+        int maxRightWidth = Math.max(560, this.width / 2);
+        int actualRightWidth = Math.max(560, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
+        int maxAllowedRight = Math.max(480, rootWidth - actualLeftWidth - 420 - GAP * 2);
         actualRightWidth = Math.min(actualRightWidth, maxAllowedRight);
         leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         rightPanel = new LayoutRect(this.width - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
                 actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
                 rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
-        int previewHeight = Math.min(250, rightPanel.height / 3);
-        int maxAllowedPreview = rightPanel.height - MIN_INSPECTOR_HEIGHT - INSET * 2;
-        previewHeight = Math.min(previewHeight, Math.max(120, maxAllowedPreview));
-        previewHeight = Math.max(120, previewHeight);
-        modulePreviewPanel = new LayoutRect(rightPanel.x + INSET, rightPanel.bottom() - INSET - previewHeight,
-                rightPanel.width - INSET * 2, previewHeight);
-        inspectorBodyRect = new LayoutRect(rightPanel.x + INSET, rightPanel.y + 32, rightPanel.width - INSET * 2,
-                Math.max(120, modulePreviewPanel.y - 12 - (rightPanel.y + 32)));
+        int previewWidth = Math.max(236, Math.min(286, rightPanel.width / 3));
+        detailsPanel = new LayoutRect(rightPanel.x, rightPanel.y, rightPanel.width - previewWidth - GAP, rightPanel.height);
+        previewDockPanel = new LayoutRect(detailsPanel.right() + GAP, rightPanel.y, previewWidth, rightPanel.height);
+        modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
+        inspectorBodyRect = new LayoutRect(detailsPanel.x + INSET, detailsPanel.y + 32, detailsPanel.width - INSET * 2,
+                Math.max(120, detailsPanel.height - 44));
         parameterViewport = null;
         moduleListViewport = null;
         messageLogRect = null;
@@ -472,9 +499,9 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void buildInspectorControls() {
-        int innerX = rightPanel.x + INSET;
-        int innerWidth = rightPanel.width - INSET * 2;
-        int y = rightPanel.y + 44;
+        int innerX = detailsPanel.x + INSET;
+        int innerWidth = detailsPanel.width - INSET * 2;
+        int y = inspectorBodyRect.y + 12;
 
         y += 58;
         if (isTransformSelection()) {
@@ -494,8 +521,7 @@ public final class PcgEditorScreen extends Screen {
 
         y += 108;
         PresetDefinition preset = session.getSelectedPreset();
-        int reservedBottom = 148;
-        int availableHeight = Math.max(88, modulePreviewPanel.y - 12 - reservedBottom - y);
+        int availableHeight = Math.max(72, getInspectorValidationTop() - 18 - y);
         parameterViewport = new LayoutRect(innerX, y, innerWidth, availableHeight);
         if (preset != null) {
             int labelWidth = Math.min(144, innerWidth / 3);
@@ -519,7 +545,7 @@ public final class PcgEditorScreen extends Screen {
             }
         }
 
-        int actionsTop = modulePreviewPanel.y - 54;
+        int actionsTop = getInspectorActionsRowY();
         focusButton = addButton("focus", innerX, actionsTop, 92, TOP_BUTTON_HEIGHT, "Focus", false, false, this::focusSelection);
         deleteButton = addButton("delete", innerX + 98, actionsTop, 92, TOP_BUTTON_HEIGHT, "Delete", false, true, this::deleteSelection);
         clearPreviewButton = addButton("clear_preview", innerX + 196, actionsTop, 108, TOP_BUTTON_HEIGHT, "Clear Preview", false, false,
@@ -527,9 +553,9 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void buildModuleLibraryControls() {
-        int innerX = rightPanel.x + INSET;
-        int innerWidth = rightPanel.width - INSET * 2;
-        int y = rightPanel.y + 44;
+        int innerX = detailsPanel.x + INSET;
+        int innerWidth = detailsPanel.width - INSET * 2;
+        int y = inspectorBodyRect.y + 12;
         addField("module_search", innerX, y + 18, innerWidth, FIELD_HEIGHT,
                 session.getModuleSearchQuery(), false, value -> {
                     session.setModuleSearchQuery(value);
@@ -568,7 +594,7 @@ public final class PcgEditorScreen extends Screen {
                 false, false, this::exportRegionAsModule);
 
         int listTop = y + 258;
-        int listBottom = modulePreviewPanel.y - 14;
+        int listBottom = inspectorBodyRect.bottom() - 14;
         moduleListViewport = new LayoutRect(innerX, listTop, innerWidth, Math.max(96, listBottom - listTop));
         refreshVisibleModules();
     }
@@ -638,18 +664,6 @@ public final class PcgEditorScreen extends Screen {
 
     private void drawLeftBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         drawPanel(guiGraphics, leftBar, false);
-        int toolHeight = computeToolButtonHeight();
-        int buttonAreaBottom = leftBar.y + 8 + PcgEditorTool.values().length * toolHeight + (PcgEditorTool.values().length - 1) * 8;
-        int bottomStatsTop = Math.max(buttonAreaBottom + 8, leftBar.bottom() - 164);
-        guiGraphics.fill(leftBar.x + 8, bottomStatsTop, leftBar.right() - 8, leftBar.bottom() - 8, PANEL_HEADER);
-        guiGraphics.drawString(this.font, "POSITION", leftBar.x + 14, bottomStatsTop + 10, TEXT_BRIGHT);
-        List<String> positionLines = describePosition();
-        guiGraphics.drawString(this.font, trimToWidth(positionLines.get(0), leftBar.width - 28), leftBar.x + 14, bottomStatsTop + 28, TEXT_MUTED);
-        guiGraphics.drawString(this.font, trimToWidth(positionLines.get(1), leftBar.width - 28), leftBar.x + 14, bottomStatsTop + 42, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "SNAP", leftBar.x + 14, bottomStatsTop + 68, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, session.getSnapStep() + " blocks", leftBar.x + 14, bottomStatsTop + 84, TEXT_BLUE);
-        guiGraphics.drawString(this.font, "Selection", leftBar.x + 14, bottomStatsTop + 108, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, trimToWidth(session.getSelectionLabel(), leftBar.width - 28), leftBar.x + 14, bottomStatsTop + 124, TEXT_MUTED);
     }
 
     private void drawViewport(GuiGraphics guiGraphics) {
@@ -677,8 +691,9 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void drawRightPanel(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        drawPanel(guiGraphics, rightPanel, false);
-        guiGraphics.drawString(this.font, "DETAILS", rightPanel.x + INSET, rightPanel.y + 10, TEXT_BRIGHT);
+        drawPanel(guiGraphics, detailsPanel, false);
+        drawPanel(guiGraphics, previewDockPanel, false);
+        guiGraphics.drawString(this.font, "DETAILS", detailsPanel.x + INSET, detailsPanel.y + 10, TEXT_BRIGHT);
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             drawModuleLibrary(guiGraphics);
         } else {
@@ -720,11 +735,11 @@ public final class PcgEditorScreen extends Screen {
         y = drawSectionHeader(guiGraphics, y, "PARAMETERS");
         drawParameterViewport(guiGraphics, innerX, innerWidth, y);
 
-        int validationTop = Math.max(y + 16, inspectorBodyRect.bottom() - 108);
+        int validationTop = getInspectorValidationTop();
         validationTop = drawSectionHeader(guiGraphics, validationTop, "VALIDATION");
         drawValidationSection(guiGraphics, innerX, validationTop, innerWidth);
 
-        int actionsTop = Math.max(validationTop + 54, inspectorBodyRect.bottom() - 50);
+        int actionsTop = getInspectorActionsHeaderY();
         actionsTop = drawSectionHeader(guiGraphics, actionsTop, "ACTIONS");
         guiGraphics.drawString(this.font, "Toolbar actions stay live while the world viewport is active.", innerX, actionsTop + 2, TEXT_MUTED);
         guiGraphics.disableScissor();
@@ -749,10 +764,11 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void drawModulePreview(GuiGraphics guiGraphics) {
-        drawPanel(guiGraphics, modulePreviewPanel, false);
         guiGraphics.drawString(this.font, "MODULE PREVIEW", modulePreviewPanel.x + 10, modulePreviewPanel.y + 10, TEXT_BRIGHT);
         ModuleDefinition module = session.getSelectedModule();
-        int previewHeight = Math.max(118, modulePreviewPanel.height - 122);
+        int controlsHeight = 58;
+        int summaryHeight = 66;
+        int previewHeight = Math.max(72, modulePreviewPanel.height - 28 - controlsHeight - summaryHeight);
         ModuleSchematicPreviewRenderer.render(guiGraphics, modulePreviewPanel.x + 10, modulePreviewPanel.y + 28,
                 modulePreviewPanel.width - 20, previewHeight, module,
                 session.getModuleRotationQuarterTurns(), session.getModulePreviewZoomPercent(),
@@ -763,6 +779,7 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         SpongeSchematicData data = module.schematicData;
+        guiGraphics.enableScissor(modulePreviewPanel.x + 2, textY - 2, modulePreviewPanel.right() - 2, modulePreviewPanel.bottom() - 62);
         guiGraphics.drawString(this.font, trimToWidth(module.id, modulePreviewPanel.width - 20), modulePreviewPanel.x + 10, textY, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "Size " + (data == null ? "<none>" : data.getWidth() + " x " + data.getHeight() + " x " + data.getLength()),
                 modulePreviewPanel.x + 10, textY + 12, TEXT_MUTED);
@@ -779,6 +796,7 @@ public final class PcgEditorScreen extends Screen {
         List<ValidationIssue> issues = moduleValidationIssues(session.getSelectedPack(), module);
         String validationSummary = issues.isEmpty() ? "Validation OK" : "Validation " + issues.size() + " issue(s)";
         guiGraphics.drawString(this.font, validationSummary, modulePreviewPanel.x + 10, textY + 84, issues.isEmpty() ? TEXT_GREEN : TEXT_YELLOW);
+        guiGraphics.disableScissor();
     }
 
     private void drawBottomBar(GuiGraphics guiGraphics) {
@@ -955,8 +973,8 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private int drawSectionHeader(GuiGraphics guiGraphics, int y, String title) {
-        guiGraphics.fill(rightPanel.x + 1, y, rightPanel.right() - 1, y + 16, PANEL_HEADER);
-        guiGraphics.drawString(this.font, title, rightPanel.x + INSET, y + 4, TEXT_BRIGHT);
+        guiGraphics.fill(detailsPanel.x + 1, y, detailsPanel.right() - 1, y + 16, PANEL_HEADER);
+        guiGraphics.drawString(this.font, title, detailsPanel.x + INSET, y + 4, TEXT_BRIGHT);
         return y + 24;
     }
 
@@ -1003,6 +1021,18 @@ public final class PcgEditorScreen extends Screen {
             guiGraphics.drawString(this.font, trimToWidth(warning, innerWidth), innerX, lineY, color);
             lineY += 12;
         }
+    }
+
+    private int getInspectorActionsRowY() {
+        return inspectorBodyRect.bottom() - TOP_BUTTON_HEIGHT - 12;
+    }
+
+    private int getInspectorActionsHeaderY() {
+        return getInspectorActionsRowY() - 24;
+    }
+
+    private int getInspectorValidationTop() {
+        return getInspectorActionsHeaderY() - 72;
     }
 
     private void drawLabelValue(GuiGraphics guiGraphics, int x, int y, int width, String label, String value, int valueColor) {
@@ -1238,6 +1268,13 @@ public final class PcgEditorScreen extends Screen {
     private void stopNavigation() {
         if (session.isNavigating()) {
             session.setNavigating(false);
+            navForward = false;
+            navBack = false;
+            navLeft = false;
+            navRight = false;
+            navUp = false;
+            navDown = false;
+            navFast = false;
         }
     }
 
@@ -1260,6 +1297,66 @@ public final class PcgEditorScreen extends Screen {
         minecraft.player.setXRot(clampPitch(minecraft.player.getXRot() + pitchStep));
         minecraft.player.yRotO = minecraft.player.getYRot();
         minecraft.player.xRotO = minecraft.player.getXRot();
+    }
+
+    private boolean handleNavigationKey(int keyCode, boolean pressed) {
+        if (!session.isNavigating()) {
+            return false;
+        }
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_W -> navForward = pressed;
+            case GLFW.GLFW_KEY_S -> navBack = pressed;
+            case GLFW.GLFW_KEY_A -> navLeft = pressed;
+            case GLFW.GLFW_KEY_D -> navRight = pressed;
+            case GLFW.GLFW_KEY_SPACE -> navUp = pressed;
+            case GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL -> navDown = pressed;
+            case GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT -> navFast = pressed;
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void tickNavigationMovement() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return;
+        }
+        double speed = navFast ? 2.4D : 0.95D;
+        Vec3 forward = minecraft.player.getLookAngle();
+        Vec3 flatForward = new Vec3(forward.x, 0.0D, forward.z);
+        if (flatForward.lengthSqr() < 1.0E-6D) {
+            flatForward = new Vec3(0.0D, 0.0D, 1.0D);
+        } else {
+            flatForward = flatForward.normalize();
+        }
+        Vec3 right = new Vec3(-flatForward.z, 0.0D, flatForward.x);
+        Vec3 movement = Vec3.ZERO;
+        if (navForward) {
+            movement = movement.add(flatForward.scale(speed));
+        }
+        if (navBack) {
+            movement = movement.subtract(flatForward.scale(speed));
+        }
+        if (navLeft) {
+            movement = movement.subtract(right.scale(speed));
+        }
+        if (navRight) {
+            movement = movement.add(right.scale(speed));
+        }
+        if (navUp) {
+            movement = movement.add(0.0D, speed, 0.0D);
+        }
+        if (navDown) {
+            movement = movement.add(0.0D, -speed, 0.0D);
+        }
+        if (movement.lengthSqr() == 0.0D) {
+            return;
+        }
+        Vec3 destination = minecraft.player.position().add(movement);
+        minecraft.player.moveTo(destination.x, destination.y, destination.z, minecraft.player.getYRot(), minecraft.player.getXRot());
+        minecraft.player.setDeltaMovement(Vec3.ZERO);
     }
 
     private void updateActionStates() {
@@ -1821,7 +1918,7 @@ public final class PcgEditorScreen extends Screen {
 
     private int computeToolButtonHeight() {
         int toolCount = PcgEditorTool.values().length;
-        int reserved = 180;
+        int reserved = 24;
         int available = leftBar.height - reserved - (toolCount - 1) * 8 - 16;
         return Math.max(68, Math.min(TOOL_BUTTON_HEIGHT, available / Math.max(1, toolCount)));
     }
