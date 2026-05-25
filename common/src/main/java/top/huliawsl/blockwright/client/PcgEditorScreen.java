@@ -1,12 +1,13 @@
 package top.huliawsl.blockwright.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import dev.architectury.platform.Platform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
-import dev.architectury.platform.Platform;
 import org.lwjgl.glfw.GLFW;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.config.BlockwrightConfig;
@@ -32,6 +33,8 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public final class PcgEditorScreen extends Screen {
+    private static final int UI_BASE_WIDTH = 1920;
+    private static final int UI_BASE_HEIGHT = 1080;
     private static final int ROOT_BG = 0x00000000;
     private static final int PANEL_BG = 0xD610141B;
     private static final int PANEL_BORDER = 0xFF2E3640;
@@ -122,6 +125,11 @@ public final class PcgEditorScreen extends Screen {
     private int maxModuleListScroll;
     private int logScroll;
     private int maxLogScroll;
+    private int uiWidth = UI_BASE_WIDTH;
+    private int uiHeight = UI_BASE_HEIGHT;
+    private double uiScale = 1.0D;
+    private double uiOffsetX;
+    private double uiOffsetY;
     private double navigationMouseX;
     private double navigationMouseY;
     private boolean navForward;
@@ -172,23 +180,32 @@ public final class PcgEditorScreen extends Screen {
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         guiGraphics.fill(0, 0, this.width, this.height, ROOT_BG);
-        drawTopBar(guiGraphics, mouseX, mouseY);
-        drawLeftBar(guiGraphics, mouseX, mouseY);
-        drawViewport(guiGraphics);
-        drawRightPanel(guiGraphics, mouseX, mouseY);
-        drawBottomBar(guiGraphics);
-        drawInteractiveElements(guiGraphics, mouseX, mouseY);
         if (showBakeConfirm) {
-            drawBakeConfirm(guiGraphics, mouseX, mouseY);
+            guiGraphics.fill(0, 0, this.width, this.height, 0x99000000);
         }
+        int uiMouseX = (int) Math.round(toUiX(mouseX));
+        int uiMouseY = (int) Math.round(toUiY(mouseY));
+        beginUi(guiGraphics);
+        drawTopBar(guiGraphics, uiMouseX, uiMouseY);
+        drawLeftBar(guiGraphics, uiMouseX, uiMouseY);
+        drawViewport(guiGraphics);
+        drawRightPanel(guiGraphics, uiMouseX, uiMouseY);
+        drawBottomBar(guiGraphics);
+        drawInteractiveElements(guiGraphics, uiMouseX, uiMouseY);
+        if (showBakeConfirm) {
+            drawBakeConfirm(guiGraphics, uiMouseX, uiMouseY);
+        }
+        endUi(guiGraphics);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        double uiMouseX = toUiX(mouseX);
+        double uiMouseY = toUiY(mouseY);
         if (showBakeConfirm) {
-            return handleConfirmClick(mouseX, mouseY, button);
+            return handleConfirmClick(uiMouseX, uiMouseY, button);
         }
-        if (button == 1 && viewport.contains(mouseX, mouseY)) {
+        if (button == 1 && viewport.contains(uiMouseX, uiMouseY)) {
             startNavigation(mouseX, mouseY);
             return true;
         }
@@ -196,17 +213,17 @@ public final class PcgEditorScreen extends Screen {
             return false;
         }
 
-        if (handleButtonClick(mouseX, mouseY)) {
+        if (handleButtonClick(uiMouseX, uiMouseY)) {
             return true;
         }
-        if (handleFieldClick(mouseX, mouseY)) {
+        if (handleFieldClick(uiMouseX, uiMouseY)) {
             return true;
         }
         clearFocus();
-        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(mouseX, mouseY)) {
-            return selectModuleFromList(mouseY);
+        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(uiMouseX, uiMouseY)) {
+            return selectModuleFromList(uiMouseY);
         }
-        if (viewport.contains(mouseX, mouseY) && !session.isNavigating()) {
+        if (viewport.contains(uiMouseX, uiMouseY) && !session.isNavigating()) {
             return handleViewportClick();
         }
         return false;
@@ -240,19 +257,21 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        double uiMouseX = toUiX(mouseX);
+        double uiMouseY = toUiY(mouseY);
         if (showBakeConfirm) {
             return true;
         }
-        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(mouseX, mouseY)) {
+        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(uiMouseX, uiMouseY)) {
             moduleListScroll = clamp(moduleListScroll - (int) Math.signum(delta), 0, maxModuleListScroll);
             return true;
         }
-        if (parameterViewport != null && parameterViewport.contains(mouseX, mouseY) && !parameterFields.isEmpty()) {
+        if (parameterViewport != null && parameterViewport.contains(uiMouseX, uiMouseY) && !parameterFields.isEmpty()) {
             parameterScroll = clamp(parameterScroll - (int) (delta * 18.0D), 0, maxParameterScroll);
             layoutParameterFields();
             return true;
         }
-        if (messageLogRect != null && messageLogRect.contains(mouseX, mouseY)) {
+        if (messageLogRect != null && messageLogRect.contains(uiMouseX, uiMouseY)) {
             logScroll = clamp(logScroll - (int) Math.signum(delta), 0, maxLogScroll);
             return true;
         }
@@ -369,6 +388,7 @@ public final class PcgEditorScreen extends Screen {
     @Override
     public void onClose() {
         stopNavigation();
+        BlockwrightClient.suppressNextEditorToggle();
         sendCommand("blockwright editor exit");
         session.exitCameraMode(Minecraft.getInstance());
         session.close();
@@ -413,6 +433,7 @@ public final class PcgEditorScreen extends Screen {
         moduleExportField = null;
         focusedField = null;
 
+        updateUiMetrics();
         layoutRoot();
         buildTopToolbar();
         buildToolPalette();
@@ -431,16 +452,16 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void layoutRoot() {
-        int rootWidth = this.width - OUTER_PAD * 2;
+        int rootWidth = uiWidth - OUTER_PAD * 2;
         topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, TOP_BAR_HEIGHT);
-        bottomBar = new LayoutRect(OUTER_PAD, this.height - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
-        int actualLeftWidth = Math.max(112, Math.min(LEFT_BAR_WIDTH, this.width / 7));
-        int maxRightWidth = Math.max(560, this.width / 2);
+        bottomBar = new LayoutRect(OUTER_PAD, uiHeight - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
+        int actualLeftWidth = Math.max(112, Math.min(LEFT_BAR_WIDTH, uiWidth / 7));
+        int maxRightWidth = Math.max(560, uiWidth / 2);
         int actualRightWidth = Math.max(560, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
         int maxAllowedRight = Math.max(480, rootWidth - actualLeftWidth - 420 - GAP * 2);
         actualRightWidth = Math.min(actualRightWidth, maxAllowedRight);
         leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
-        rightPanel = new LayoutRect(this.width - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
+        rightPanel = new LayoutRect(uiWidth - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
                 actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
                 rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
@@ -642,8 +663,6 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.fill(topBar.x + 8, topBar.y + 8, topBar.x + 34, topBar.y + topBar.height - 8, PANEL_ACCENT);
         guiGraphics.drawString(this.font, "BW", topBar.x + 15, topBar.y + 18, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "PCG EDITOR", topBar.x + 46, topBar.y + 18, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "MODE:", topBar.x + 174, topBar.y + 18, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Build", topBar.x + 218, topBar.y + 18, TEXT_GREEN);
         int actionGap = 6;
         int exitWidth = 76;
         int smallWidth = 82;
@@ -654,12 +673,12 @@ public final class PcgEditorScreen extends Screen {
         int clusterWidth = 178;
         int presetX = actionStart - clusterWidth - 16;
         int packX = presetX - clusterWidth - 12;
-        guiGraphics.drawString(this.font, "PACK:", packX - 34, topBar.y + 18, TEXT_MUTED);
-        guiGraphics.drawString(this.font, trimToWidth(session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, clusterWidth - 52),
-                packX + 28, topBar.y + 18, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "PRESET:", presetX - 46, topBar.y + 18, TEXT_MUTED);
-        guiGraphics.drawString(this.font, trimToWidth(session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, clusterWidth - 52),
-                presetX + 28, topBar.y + 18, TEXT_BRIGHT);
+        LayoutRect modeRect = new LayoutRect(topBar.x + 164, topBar.y + 9, 142, TOP_BUTTON_HEIGHT + 4);
+        LayoutRect packRect = new LayoutRect(packX + 24, topBar.y + 9, clusterWidth - 48, TOP_BUTTON_HEIGHT + 4);
+        LayoutRect presetRect = new LayoutRect(presetX + 24, topBar.y + 9, clusterWidth - 48, TOP_BUTTON_HEIGHT + 4);
+        drawToolbarChip(guiGraphics, modeRect, "MODE", "Build", TEXT_GREEN);
+        drawToolbarChip(guiGraphics, packRect, "PACK", session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, TEXT_BRIGHT);
+        drawToolbarChip(guiGraphics, presetRect, "PRESET", session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, TEXT_BRIGHT);
     }
 
     private void drawLeftBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -707,7 +726,7 @@ public final class PcgEditorScreen extends Screen {
         int innerWidth = inspectorBodyRect.width;
         int y = inspectorBodyRect.y;
 
-        guiGraphics.enableScissor(inspectorBodyRect.x, inspectorBodyRect.y, inspectorBodyRect.right(), inspectorBodyRect.bottom());
+        enableUiScissor(guiGraphics, inspectorBodyRect);
 
         y = drawSectionHeader(guiGraphics, y, "OBJECT");
         drawLabelValue(guiGraphics, innerX, y, innerWidth, "Name", session.getSelectionLabel(), TEXT_BRIGHT);
@@ -749,7 +768,7 @@ public final class PcgEditorScreen extends Screen {
         int innerX = inspectorBodyRect.x;
         int innerWidth = inspectorBodyRect.width;
         int y = inspectorBodyRect.y;
-        guiGraphics.enableScissor(inspectorBodyRect.x, inspectorBodyRect.y, inspectorBodyRect.right(), inspectorBodyRect.bottom());
+        enableUiScissor(guiGraphics, inspectorBodyRect);
         y = drawSectionHeader(guiGraphics, y, "MODULE LIBRARY");
         LoadedPack pack = session.getSelectedPack();
         drawLabelValue(guiGraphics, innerX, y, innerWidth, "Pack", pack == null ? "<none>" : pack.getMetadata().id, TEXT_BRIGHT);
@@ -779,7 +798,8 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         SpongeSchematicData data = module.schematicData;
-        guiGraphics.enableScissor(modulePreviewPanel.x + 2, textY - 2, modulePreviewPanel.right() - 2, modulePreviewPanel.bottom() - 62);
+        enableUiScissor(guiGraphics, new LayoutRect(modulePreviewPanel.x + 2, textY - 2,
+                modulePreviewPanel.width - 4, modulePreviewPanel.bottom() - 62 - (textY - 2)));
         guiGraphics.drawString(this.font, trimToWidth(module.id, modulePreviewPanel.width - 20), modulePreviewPanel.x + 10, textY, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "Size " + (data == null ? "<none>" : data.getWidth() + " x " + data.getHeight() + " x " + data.getLength()),
                 modulePreviewPanel.x + 10, textY + 12, TEXT_MUTED);
@@ -839,7 +859,6 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void drawBakeConfirm(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        guiGraphics.fill(0, 0, this.width, this.height, 0x99000000);
         LayoutRect dialog = getConfirmDialogRect();
         drawPanel(guiGraphics, dialog, true);
         guiGraphics.drawString(this.font, "Confirm Bake", dialog.x + 14, dialog.y + 14, TEXT_BRIGHT);
@@ -892,7 +911,7 @@ public final class PcgEditorScreen extends Screen {
     private LayoutRect getConfirmDialogRect() {
         int width = 360;
         int height = 146;
-        return new LayoutRect((this.width - width) / 2, (this.height - height) / 2, width, height);
+        return new LayoutRect((uiWidth - width) / 2, (uiHeight - height) / 2, width, height);
     }
 
     private void confirmBake() {
@@ -907,7 +926,7 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.fill(parameterViewport.x, parameterViewport.y, parameterViewport.right(), parameterViewport.bottom(), 0x8010141A);
         guiGraphics.fill(parameterViewport.x, parameterViewport.y, parameterViewport.right(), parameterViewport.y + 1, PANEL_BORDER);
         guiGraphics.fill(parameterViewport.x, parameterViewport.bottom() - 1, parameterViewport.right(), parameterViewport.bottom(), PANEL_BORDER);
-        guiGraphics.enableScissor(parameterViewport.x, parameterViewport.y, parameterViewport.right(), parameterViewport.bottom());
+        enableUiScissor(guiGraphics, parameterViewport);
         for (ParameterField parameterField : parameterFields) {
             EditorField field = parameterField.field;
             if (!field.visible) {
@@ -928,7 +947,7 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.fill(moduleListViewport.x, moduleListViewport.y, moduleListViewport.right(), moduleListViewport.bottom(), 0x8010141A);
         guiGraphics.fill(moduleListViewport.x, moduleListViewport.y, moduleListViewport.right(), moduleListViewport.y + 1, PANEL_BORDER);
         guiGraphics.fill(moduleListViewport.x, moduleListViewport.bottom() - 1, moduleListViewport.right(), moduleListViewport.bottom(), PANEL_BORDER);
-        guiGraphics.enableScissor(moduleListViewport.x, moduleListViewport.y, moduleListViewport.right(), moduleListViewport.bottom());
+        enableUiScissor(guiGraphics, moduleListViewport);
         int rowY = moduleListViewport.y;
         int maxRows = Math.max(1, moduleListViewport.height / MODULE_ROW_HEIGHT);
         int end = Math.min(visibleModules.size(), moduleListScroll + maxRows);
@@ -1323,7 +1342,15 @@ public final class PcgEditorScreen extends Screen {
         if (minecraft.player == null) {
             return;
         }
-        double speed = navFast ? 2.4D : 0.95D;
+        long window = minecraft.getWindow().getWindow();
+        boolean forwardPressed = navForward || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_W);
+        boolean backPressed = navBack || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_S);
+        boolean leftPressed = navLeft || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_A);
+        boolean rightPressed = navRight || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_D);
+        boolean upPressed = navUp || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_SPACE);
+        boolean downPressed = navDown || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL) || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean fastPressed = navFast || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT);
+        double speed = fastPressed ? 3.6D : 1.45D;
         Vec3 forward = minecraft.player.getLookAngle();
         Vec3 flatForward = new Vec3(forward.x, 0.0D, forward.z);
         if (flatForward.lengthSqr() < 1.0E-6D) {
@@ -1333,22 +1360,22 @@ public final class PcgEditorScreen extends Screen {
         }
         Vec3 right = new Vec3(-flatForward.z, 0.0D, flatForward.x);
         Vec3 movement = Vec3.ZERO;
-        if (navForward) {
+        if (forwardPressed) {
             movement = movement.add(flatForward.scale(speed));
         }
-        if (navBack) {
+        if (backPressed) {
             movement = movement.subtract(flatForward.scale(speed));
         }
-        if (navLeft) {
+        if (leftPressed) {
             movement = movement.subtract(right.scale(speed));
         }
-        if (navRight) {
+        if (rightPressed) {
             movement = movement.add(right.scale(speed));
         }
-        if (navUp) {
+        if (upPressed) {
             movement = movement.add(0.0D, speed, 0.0D);
         }
-        if (navDown) {
+        if (downPressed) {
             movement = movement.add(0.0D, -speed, 0.0D);
         }
         if (movement.lengthSqr() == 0.0D) {
@@ -1921,6 +1948,53 @@ public final class PcgEditorScreen extends Screen {
         int reserved = 24;
         int available = leftBar.height - reserved - (toolCount - 1) * 8 - 16;
         return Math.max(68, Math.min(TOOL_BUTTON_HEIGHT, available / Math.max(1, toolCount)));
+    }
+
+    private void updateUiMetrics() {
+        uiScale = Math.min((double) this.width / (double) UI_BASE_WIDTH, (double) this.height / (double) UI_BASE_HEIGHT);
+        uiScale = Math.max(0.25D, uiScale);
+        uiWidth = UI_BASE_WIDTH;
+        uiHeight = UI_BASE_HEIGHT;
+        uiOffsetX = (this.width - uiWidth * uiScale) / 2.0D;
+        uiOffsetY = (this.height - uiHeight * uiScale) / 2.0D;
+    }
+
+    private void beginUi(GuiGraphics guiGraphics) {
+        guiGraphics.pose().pushPose();
+        guiGraphics.pose().translate((float) uiOffsetX, (float) uiOffsetY, 0.0F);
+        guiGraphics.pose().scale((float) uiScale, (float) uiScale, 1.0F);
+    }
+
+    private void endUi(GuiGraphics guiGraphics) {
+        guiGraphics.pose().popPose();
+    }
+
+    private double toUiX(double mouseX) {
+        return (mouseX - uiOffsetX) / uiScale;
+    }
+
+    private double toUiY(double mouseY) {
+        return (mouseY - uiOffsetY) / uiScale;
+    }
+
+    private void enableUiScissor(GuiGraphics guiGraphics, LayoutRect rect) {
+        int left = clamp((int) Math.floor(uiOffsetX + rect.x * uiScale), 0, this.width);
+        int top = clamp((int) Math.floor(uiOffsetY + rect.y * uiScale), 0, this.height);
+        int right = clamp((int) Math.ceil(uiOffsetX + rect.right() * uiScale), 0, this.width);
+        int bottom = clamp((int) Math.ceil(uiOffsetY + rect.bottom() * uiScale), 0, this.height);
+        guiGraphics.enableScissor(left, top, right, bottom);
+    }
+
+    private void drawToolbarChip(GuiGraphics guiGraphics, LayoutRect rect, String label, String value, int valueColor) {
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), PANEL_HEADER);
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.y + 1, PANEL_BORDER);
+        guiGraphics.fill(rect.x, rect.bottom() - 1, rect.right(), rect.bottom(), PANEL_BORDER);
+        guiGraphics.fill(rect.x, rect.y, rect.x + 1, rect.bottom(), PANEL_BORDER);
+        guiGraphics.fill(rect.right() - 1, rect.y, rect.right(), rect.bottom(), PANEL_BORDER);
+        String prefix = label + ":";
+        guiGraphics.drawString(this.font, prefix, rect.x + 8, rect.y + 8, TEXT_MUTED);
+        int prefixWidth = this.font.width(prefix);
+        guiGraphics.drawString(this.font, trimToWidth(value, rect.width - prefixWidth - 18), rect.x + 12 + prefixWidth, rect.y + 8, valueColor);
     }
 
     private String sanitizeModuleId(String rawValue) {

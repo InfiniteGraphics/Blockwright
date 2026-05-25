@@ -18,6 +18,7 @@ public final class BlockwrightClient {
     );
 
     private static boolean initialized;
+    private static int editorToggleCooldownTicks;
 
     private BlockwrightClient() {
     }
@@ -30,6 +31,9 @@ public final class BlockwrightClient {
 
         KeyMappingRegistry.register(OPEN_SCREEN);
         ClientTickEvent.CLIENT_POST.register(client -> {
+            if (editorToggleCooldownTicks > 0) {
+                editorToggleCooldownTicks--;
+            }
             if (client.level == null || client.player == null) {
                 ClientSelectionState.clearAll();
                 ClientPreviewState.clear();
@@ -38,6 +42,9 @@ public final class BlockwrightClient {
             }
             PcgEditorViewportNavigator.tick(client, PcgEditorSession.get());
             while (OPEN_SCREEN.consumeClick()) {
+                if (editorToggleCooldownTicks > 0) {
+                    continue;
+                }
                 if (PcgEditorSession.get().isOpen()) {
                     if (client.screen instanceof PcgEditorScreen) {
                         client.screen.onClose();
@@ -63,6 +70,10 @@ public final class BlockwrightClient {
                 client.setScreen(new PcgEditorScreen());
             }
         });
+    }
+
+    public static void suppressNextEditorToggle() {
+        editorToggleCooldownTicks = 2;
     }
 
     private static boolean canUseEditorSpectatorMode(Minecraft client) {
