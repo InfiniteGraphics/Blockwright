@@ -58,6 +58,24 @@ public final class BlockwrightMainScreen extends Screen {
     private int rightWidth;
     private int middleX;
     private int rightX;
+    private int leftInnerX;
+    private int middleInnerX;
+    private int rightInnerX;
+    private int regionSectionTop;
+    private int regionButtonsY;
+    private int regionInfoY;
+    private int splineSectionTop;
+    private int splineButtonsY;
+    private int inputHintY;
+    private int maxSplinePreviewLines;
+    private int presetInfoTop;
+    private int parameterHeaderY;
+    private int parameterLabelWidth;
+    private int parameterFieldX;
+    private int parameterFieldWidth;
+    private int statusPreviewTop;
+    private int actionButtonsY;
+    private int issuesHeaderY;
     private int parameterViewportTop;
     private int parameterViewportBottom;
     private int parameterScroll;
@@ -84,44 +102,42 @@ public final class BlockwrightMainScreen extends Screen {
         initLayout();
 
         int buttonRowY = topY + PANEL_INSET + 14;
-        int presetArrowY = buttonRowY;
+        int presetArrowY = presetInfoTop - 8;
         int actionRowWidth = (rightWidth - PANEL_INSET * 2 - PANEL_GAP) / 2;
 
         addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePreset(-1))
-                .bounds(middleX + PANEL_INSET, presetArrowY, 24, BUTTON_HEIGHT)
+                .bounds(middleInnerX, presetArrowY, 24, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePreset(1))
                 .bounds(middleX + middleWidth - PANEL_INSET - 24, presetArrowY, 24, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Reload"), button -> reloadPacks())
-                .bounds(rightX + PANEL_INSET, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
+                .bounds(rightInnerX, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Close"), button -> onClose())
-                .bounds(rightX + PANEL_INSET + actionRowWidth + PANEL_GAP, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
+                .bounds(rightInnerX + actionRowWidth + PANEL_GAP, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
                 .build());
 
-        int regionButtonY = topY + HEADER_HEIGHT + 62;
         addRenderableWidget(Button.builder(Component.literal("Set P1"), button -> sendCommand("blockwright region pos1"))
-                .bounds(contentLeft + PANEL_INSET, regionButtonY, (leftWidth - PANEL_INSET * 2 - PANEL_GAP) / 2, BUTTON_HEIGHT)
+                .bounds(leftInnerX, regionButtonsY, (leftWidth - PANEL_INSET * 2 - PANEL_GAP) / 2, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Set P2"), button -> sendCommand("blockwright region pos2"))
-                .bounds(contentLeft + PANEL_INSET + (leftWidth - PANEL_INSET * 2 - PANEL_GAP) / 2 + PANEL_GAP, regionButtonY,
+                .bounds(leftInnerX + (leftWidth - PANEL_INSET * 2 - PANEL_GAP) / 2 + PANEL_GAP, regionButtonsY,
                         (leftWidth - PANEL_INSET * 2 - PANEL_GAP) / 2, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Clear"), button -> sendCommand("blockwright region clear"))
-                .bounds(contentLeft + PANEL_INSET, regionButtonY + BUTTON_HEIGHT + ROW_GAP, leftWidth - PANEL_INSET * 2, BUTTON_HEIGHT)
+                .bounds(leftInnerX, regionButtonsY + BUTTON_HEIGHT + ROW_GAP, leftWidth - PANEL_INSET * 2, BUTTON_HEIGHT)
                 .build());
 
-        int splineButtonsY = topY + HEADER_HEIGHT + 174;
         int splineButtonWidth = (leftWidth - PANEL_INSET * 2 - PANEL_GAP * 2) / 3;
         addRenderableWidget(Button.builder(Component.literal("Add"), button -> sendCommand("blockwright spline add"))
-                .bounds(contentLeft + PANEL_INSET, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
+                .bounds(leftInnerX, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("List"), button -> sendCommand("blockwright spline list"))
-                .bounds(contentLeft + PANEL_INSET + splineButtonWidth + PANEL_GAP, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
+                .bounds(leftInnerX + splineButtonWidth + PANEL_GAP, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Clear"), button -> sendCommand("blockwright spline clear"))
-                .bounds(contentLeft + PANEL_INSET + (splineButtonWidth + PANEL_GAP) * 2, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
+                .bounds(leftInnerX + (splineButtonWidth + PANEL_GAP) * 2, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
                 .build());
 
         PresetDefinition preset = getSelectedPreset();
@@ -133,25 +149,28 @@ public final class BlockwrightMainScreen extends Screen {
                 parameterKeys.add(entry.getKey());
                 EditBox box = new EditBox(this.font, 0, 0, 10, FIELD_HEIGHT, Component.literal(entry.getKey()));
                 box.setValue(entry.getValue().defaultValue == null ? "" : entry.getValue().defaultValue.getAsString());
+                box.setBordered(true);
+                box.setEditable(true);
+                box.setTextColor(TEXT_BRIGHT);
+                box.setTextColorUneditable(TEXT_MUTED);
                 box.setResponder(value -> ClientPreviewState.markStale());
                 addRenderableWidget(box);
                 parameterBoxes.add(box);
             }
         }
 
-        int actionButtonsY = topY + HEADER_HEIGHT + 52;
         int actionButtonWidth = (rightWidth - PANEL_INSET * 2 - PANEL_GAP) / 2;
         previewButton = addRenderableWidget(Button.builder(Component.literal("Preview"), button -> sendPreviewCommand())
-                .bounds(rightX + PANEL_INSET, actionButtonsY, actionButtonWidth, BUTTON_HEIGHT)
+                .bounds(rightInnerX, actionButtonsY, actionButtonWidth, BUTTON_HEIGHT)
                 .build());
         bakeButton = addRenderableWidget(Button.builder(Component.literal("Bake"), button -> sendCommand("blockwright bake"))
-                .bounds(rightX + PANEL_INSET + actionButtonWidth + PANEL_GAP, actionButtonsY, actionButtonWidth, BUTTON_HEIGHT)
+                .bounds(rightInnerX + actionButtonWidth + PANEL_GAP, actionButtonsY, actionButtonWidth, BUTTON_HEIGHT)
                 .build());
         undoButton = addRenderableWidget(Button.builder(Component.literal("Undo"), button -> sendCommand("blockwright undo"))
-                .bounds(rightX + PANEL_INSET, actionButtonsY + BUTTON_HEIGHT + ROW_GAP, actionButtonWidth, BUTTON_HEIGHT)
+                .bounds(rightInnerX, actionButtonsY + BUTTON_HEIGHT + ROW_GAP, actionButtonWidth, BUTTON_HEIGHT)
                 .build());
         clearPreviewButton = addRenderableWidget(Button.builder(Component.literal("Clear"), button -> sendCommand("blockwright preview clear"))
-                .bounds(rightX + PANEL_INSET + actionButtonWidth + PANEL_GAP, actionButtonsY + BUTTON_HEIGHT + ROW_GAP,
+                .bounds(rightInnerX + actionButtonWidth + PANEL_GAP, actionButtonsY + BUTTON_HEIGHT + ROW_GAP,
                         actionButtonWidth, BUTTON_HEIGHT)
                 .build());
 
@@ -182,18 +201,18 @@ public final class BlockwrightMainScreen extends Screen {
         guiGraphics.drawString(this.font, "Status", rightX + PANEL_INSET, topY + 8, TEXT_BRIGHT);
 
         guiGraphics.drawString(this.font,
-                trimToWidth(selectedPack == null ? "Pack: <none>" : "Pack: " + selectedPack.getMetadata().id, middleWidth - 84),
-                middleX + PANEL_INSET + 32, topY + PANEL_INSET + 18, TEXT_MUTED);
+                trimToWidth(selectedPack == null ? "Pack: <none>" : "Pack: " + selectedPack.getMetadata().id, middleWidth - PANEL_INSET * 2 - 64),
+                middleInnerX + 32, presetInfoTop, TEXT_MUTED);
         guiGraphics.drawString(this.font,
-                trimToWidth(preset == null ? "Preset: <none>" : "Preset: " + preset.id, middleWidth - 84),
-                middleX + PANEL_INSET + 32, topY + PANEL_INSET + 30, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleX + PANEL_INSET, topY + HEADER_HEIGHT + 16, TEXT_MUTED);
+                trimToWidth(preset == null ? "Preset: <none>" : "Preset: " + preset.id, middleWidth - PANEL_INSET * 2 - 64),
+                middleInnerX + 32, presetInfoTop + 12, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleInnerX, presetInfoTop + 24, TEXT_MUTED);
 
-        drawRegionSection(guiGraphics, contentLeft + PANEL_INSET, topY + HEADER_HEIGHT + 20, regionSelection);
-        drawSplineSection(guiGraphics, contentLeft + PANEL_INSET, topY + HEADER_HEIGHT + 132, splineSelection);
-        drawInputHints(guiGraphics, contentLeft + PANEL_INSET, panelBottom - 34);
-        drawParameterLabels(guiGraphics, middleX + PANEL_INSET, preset);
-        drawStatusPanel(guiGraphics, rightX + PANEL_INSET, previewPlan, issues);
+        drawRegionSection(guiGraphics, leftInnerX, regionSectionTop, regionSelection);
+        drawSplineSection(guiGraphics, leftInnerX, splineSectionTop, splineSelection);
+        drawInputHints(guiGraphics, leftInnerX, inputHintY);
+        drawParameterLabels(guiGraphics, middleInnerX, preset);
+        drawStatusPanel(guiGraphics, rightInnerX, previewPlan, issues);
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         updateActionStates();
     }
@@ -251,11 +270,34 @@ public final class BlockwrightMainScreen extends Screen {
 
         middleX = contentLeft + leftWidth + PANEL_GAP;
         rightX = middleX + middleWidth + PANEL_GAP;
+        leftInnerX = contentLeft + PANEL_INSET;
+        middleInnerX = middleX + PANEL_INSET;
+        rightInnerX = rightX + PANEL_INSET;
 
-        parameterViewportTop = topY + HEADER_HEIGHT + 58;
-        parameterViewportBottom = panelBottom - PANEL_INSET;
-        issueViewportTop = topY + HEADER_HEIGHT + 130;
-        issueViewportBottom = panelBottom - PANEL_INSET;
+        int contentTop = topY + HEADER_HEIGHT + 18;
+        int contentBottom = panelBottom - PANEL_INSET;
+
+        regionSectionTop = contentTop;
+        regionButtonsY = regionSectionTop + 44;
+        regionInfoY = regionButtonsY + BUTTON_HEIGHT * 2 + ROW_GAP + 8;
+        splineSectionTop = regionInfoY + 36;
+        inputHintY = contentBottom - 24;
+        splineButtonsY = Math.max(splineSectionTop + 68, inputHintY - BUTTON_HEIGHT - 10);
+        maxSplinePreviewLines = Math.max(1, (splineButtonsY - (splineSectionTop + 40)) / 12);
+
+        presetInfoTop = topY + PANEL_INSET + 20;
+        parameterHeaderY = presetInfoTop + 38;
+        parameterLabelWidth = clamp(middleWidth / 3, 74, 112);
+        parameterFieldX = middleInnerX + parameterLabelWidth + 10;
+        parameterFieldWidth = Math.max(96, middleWidth - PANEL_INSET * 2 - parameterLabelWidth - 10);
+        parameterViewportTop = parameterHeaderY + 22;
+        parameterViewportBottom = contentBottom;
+
+        statusPreviewTop = contentTop;
+        actionButtonsY = statusPreviewTop + 46;
+        issuesHeaderY = actionButtonsY + BUTTON_HEIGHT * 2 + ROW_GAP + SECTION_GAP + 4;
+        issueViewportTop = issuesHeaderY + 16;
+        issueViewportBottom = contentBottom;
     }
 
     private void layoutParameterFields() {
@@ -264,16 +306,14 @@ public final class BlockwrightMainScreen extends Screen {
         maxParameterScroll = Math.max(0, contentHeight - viewportHeight);
         parameterScroll = clamp(parameterScroll, 0, maxParameterScroll);
 
-        int fieldX = middleX + PANEL_INSET + 82;
-        int fieldWidth = Math.max(90, middleWidth - PANEL_INSET * 2 - 82);
         int baseY = parameterViewportTop - parameterScroll;
         for (int i = 0; i < parameterBoxes.size(); i++) {
             EditBox box = parameterBoxes.get(i);
             int y = baseY + i * PARAMETER_ROW_HEIGHT + 2;
-            boolean visible = y >= parameterViewportTop - FIELD_HEIGHT && y <= parameterViewportBottom;
-            box.setX(fieldX);
+            boolean visible = y + FIELD_HEIGHT >= parameterViewportTop && y <= parameterViewportBottom;
+            box.setX(parameterFieldX);
             box.setY(y);
-            box.setWidth(fieldWidth);
+            box.setWidth(parameterFieldWidth);
             box.setVisible(visible);
             box.active = visible;
             if (!visible) {
@@ -311,29 +351,30 @@ public final class BlockwrightMainScreen extends Screen {
             guiGraphics.drawString(this.font,
                     trimToWidth("Size: " + regionSelection.getWidth() + " x " + regionSelection.getHeight() + " x " + regionSelection.getDepth(),
                             leftWidth - PANEL_INSET * 2),
-                    x, y + 88, STATUS_OK);
-            guiGraphics.drawString(this.font, "Volume: " + regionSelection.getVolume(), x, y + 100, TEXT_MUTED);
+                    x, regionInfoY, STATUS_OK);
+            guiGraphics.drawString(this.font, "Volume: " + regionSelection.getVolume(), x, regionInfoY + 12, TEXT_MUTED);
         } else {
-            guiGraphics.drawString(this.font, "Set both corners before preview.", x, y + 88, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "Set both corners before preview.", x, regionInfoY, TEXT_MUTED);
         }
     }
 
     private void drawSplineSection(GuiGraphics guiGraphics, int x, int y, SplineSelection splineSelection) {
         guiGraphics.drawString(this.font, "Spline", x, y, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "Points: " + splineSelection.getPoints().size(), x, y + 16, TEXT_MUTED);
+        int lineY = y + 32;
         if (splineSelection.getPoints().isEmpty()) {
-            guiGraphics.drawString(this.font, "No control points.", x, y + 56, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "No control points.", x, lineY + 12, TEXT_MUTED);
             return;
         }
 
-        int lineY = y + 56;
-        for (int i = 0; i < Math.min(4, splineSelection.getPoints().size()); i++) {
+        int visibleLines = Math.max(1, Math.min(maxSplinePreviewLines, splineSelection.getPoints().size()));
+        for (int i = 0; i < visibleLines; i++) {
             guiGraphics.drawString(this.font,
                     trimToWidth("#" + i + " " + splineSelection.getPoints().get(i).toShortString(), leftWidth - PANEL_INSET * 2),
                     x, lineY, TEXT_BRIGHT);
             lineY += 12;
         }
-        if (splineSelection.getPoints().size() > 4) {
+        if (splineSelection.getPoints().size() > visibleLines) {
             guiGraphics.drawString(this.font, "...", x, lineY, TEXT_MUTED);
         }
     }
@@ -344,13 +385,13 @@ public final class BlockwrightMainScreen extends Screen {
     }
 
     private void drawParameterLabels(GuiGraphics guiGraphics, int x, PresetDefinition preset) {
-        guiGraphics.drawString(this.font, "Parameters", x, topY + HEADER_HEIGHT + 30, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Parameters", x, parameterHeaderY, TEXT_BRIGHT);
         if (preset == null) {
             guiGraphics.drawString(this.font, "No preset loaded.", x, parameterViewportTop, TEXT_MUTED);
             return;
         }
         if (maxParameterScroll > 0) {
-            guiGraphics.drawString(this.font, "Scroll", middleX + middleWidth - PANEL_INSET - 34, topY + HEADER_HEIGHT + 30, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "Scroll", middleX + middleWidth - PANEL_INSET - 34, parameterHeaderY, TEXT_MUTED);
         }
 
         int baseY = parameterViewportTop - parameterScroll;
@@ -359,12 +400,12 @@ public final class BlockwrightMainScreen extends Screen {
             if (labelY < parameterViewportTop - ISSUE_ROW_HEIGHT || labelY > parameterViewportBottom - ISSUE_ROW_HEIGHT) {
                 continue;
             }
-            guiGraphics.drawString(this.font, trimToWidth(parameterKeys.get(i), 76), x, labelY, TEXT_MUTED);
+            guiGraphics.drawString(this.font, trimToWidth(parameterKeys.get(i), parameterLabelWidth), x, labelY, TEXT_MUTED);
         }
     }
 
     private void drawStatusPanel(GuiGraphics guiGraphics, int x, PreviewPlan previewPlan, List<String> issues) {
-        int statusY = topY + HEADER_HEIGHT + 20;
+        int statusY = statusPreviewTop;
         guiGraphics.drawString(this.font, "Preview", x, statusY, TEXT_BRIGHT);
         if (previewPlan == null) {
             guiGraphics.drawString(this.font, "No preview generated.", x, statusY + 16, TEXT_MUTED);
@@ -380,9 +421,9 @@ public final class BlockwrightMainScreen extends Screen {
                     x, statusY + 28, color);
         }
 
-        guiGraphics.drawString(this.font, "Issues", x, issueViewportTop - 16, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Issues", x, issuesHeaderY, TEXT_BRIGHT);
         if (maxIssueScroll > 0) {
-            guiGraphics.drawString(this.font, "Scroll", rightX + rightWidth - PANEL_INSET - 34, issueViewportTop - 16, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "Scroll", rightX + rightWidth - PANEL_INSET - 34, issuesHeaderY, TEXT_MUTED);
         }
         if (issues.isEmpty()) {
             guiGraphics.drawString(this.font, "No warnings.", x, issueViewportTop, TEXT_MUTED);
