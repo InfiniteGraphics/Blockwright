@@ -57,26 +57,6 @@ public final class PcgEditorScreen extends Screen {
     private static final int TEXT_MAGENTA = 0xFFD786FF;
 
     private static final int OUTER_PAD = 0;
-    private static final int GAP = 1;
-    private static final int INSET = 10;
-    private static final int TOP_BAR_HEIGHT = 48;
-    private static final int LEFT_BAR_WIDTH = 126;
-    private static final int RIGHT_PANEL_WIDTH = 720;
-    private static final int BOTTOM_BAR_HEIGHT = 104;
-    private static final int TOP_BUTTON_HEIGHT = 22;
-    private static final int TOOL_BUTTON_HEIGHT = 96;
-    private static final int FIELD_HEIGHT = 20;
-    private static final int ROW_HEIGHT = 28;
-    private static final int MODULE_ROW_HEIGHT = 28;
-    private static final int LOG_ROW_HEIGHT = 15;
-    private static final int SPLITTER_SIZE = 6;
-    private static final int MIN_PREVIEW_HEIGHT = 170;
-    private static final int MIN_INSPECTOR_HEIGHT = 360;
-    private static final int MIN_DETAILS_WIDTH = 320;
-    private static final int MIN_PREVIEW_WIDTH = 200;
-    private static final int MAX_PREVIEW_WIDTH = 340;
-    private static final int MIN_BOTTOM_BAR_HEIGHT = 80;
-    private static final int MAX_BOTTOM_BAR_HEIGHT = 180;
 
     private final PcgEditorSession session = PcgEditorSession.get();
     private final List<EditorButton> buttons = new ArrayList<>();
@@ -138,6 +118,7 @@ public final class PcgEditorScreen extends Screen {
     private int maxLogScroll;
     private int uiWidth;
     private int uiHeight;
+    private PcgUiMetrics uiMetrics;
     private double uiScale = 1.0D;
     private double uiOffsetX;
     private double uiOffsetY;
@@ -150,7 +131,7 @@ public final class PcgEditorScreen extends Screen {
     private boolean navUp;
     private boolean navDown;
     private boolean navFast;
-    private int bottomBarHeight = BOTTOM_BAR_HEIGHT;
+    private int bottomBarHeight = -1;
     private int detailsPanelWidth = -1;
     private int previewPanelWidth = -1;
     private DragHandle activeDragHandle = DragHandle.NONE;
@@ -484,68 +465,73 @@ public final class PcgEditorScreen extends Screen {
 
     private void layoutRoot() {
         int rootWidth = uiWidth - OUTER_PAD * 2;
-        topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, TOP_BAR_HEIGHT);
-        bottomBarHeight = clamp(bottomBarHeight, MIN_BOTTOM_BAR_HEIGHT, MAX_BOTTOM_BAR_HEIGHT);
+        topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, uiMetrics.topBarHeight);
+        if (bottomBarHeight < 0) {
+            bottomBarHeight = uiMetrics.defaultBottomBarHeight;
+        }
+        bottomBarHeight = clamp(bottomBarHeight, uiMetrics.minBottomBarHeight, uiMetrics.maxBottomBarHeight);
         bottomBar = new LayoutRect(OUTER_PAD, uiHeight - OUTER_PAD - bottomBarHeight, rootWidth, bottomBarHeight);
-        int actualLeftWidth = clamp(uiWidth / 14, 112, 138);
-        leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
-        int contentTop = topBar.bottom() + GAP;
-        int contentHeight = bottomBar.y - GAP - contentTop;
-        int defaultPreviewWidth = clamp(uiWidth / 6, MIN_PREVIEW_WIDTH, 260);
+        int actualLeftWidth = clamp(uiWidth / 14, uiMetrics.leftBarMinWidth, uiMetrics.leftBarMaxWidth);
+        leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + uiMetrics.gap, actualLeftWidth, bottomBar.y - uiMetrics.gap - (topBar.bottom() + uiMetrics.gap));
+        int contentTop = topBar.bottom() + uiMetrics.gap;
+        int contentHeight = bottomBar.y - uiMetrics.gap - contentTop;
+        int defaultPreviewWidth = clamp(uiWidth / 7, uiMetrics.minPreviewWidth, Math.min(uiMetrics.maxPreviewWidth, uiMetrics.unit * 20));
         int previewWidth = previewPanelWidth > 0 ? previewPanelWidth : defaultPreviewWidth;
-        previewWidth = clamp(previewWidth, MIN_PREVIEW_WIDTH, MAX_PREVIEW_WIDTH);
+        previewWidth = clamp(previewWidth, uiMetrics.minPreviewWidth, uiMetrics.maxPreviewWidth);
         previewDockPanel = new LayoutRect(uiWidth - OUTER_PAD - previewWidth, contentTop, previewWidth, contentHeight);
-        int workspaceLeft = leftBar.right() + GAP;
-        int workspaceRight = previewDockPanel.x - GAP;
+        int workspaceLeft = leftBar.right() + uiMetrics.gap;
+        int workspaceRight = previewDockPanel.x - uiMetrics.gap;
         workspace = new LayoutRect(workspaceLeft, contentTop, workspaceRight - workspaceLeft, contentHeight);
         viewport = workspace;
-        int defaultDetailsWidth = clamp(workspace.width / 3, MIN_DETAILS_WIDTH, Math.max(MIN_DETAILS_WIDTH, workspace.width - 220));
+        int defaultDetailsWidth = clamp(workspace.width / 4, uiMetrics.minDetailsWidth, Math.max(uiMetrics.minDetailsWidth, workspace.width - uiMetrics.unit * 18));
         int overlayDetailsWidth = detailsPanelWidth > 0 ? detailsPanelWidth : defaultDetailsWidth;
-        int maxDetailsWidth = Math.max(MIN_DETAILS_WIDTH, workspace.width - 200);
-        overlayDetailsWidth = clamp(overlayDetailsWidth, MIN_DETAILS_WIDTH, maxDetailsWidth);
+        int maxDetailsWidth = Math.max(uiMetrics.minDetailsWidth, workspace.width - uiMetrics.unit * 12);
+        overlayDetailsWidth = clamp(overlayDetailsWidth, uiMetrics.minDetailsWidth, maxDetailsWidth);
         detailsPanel = new LayoutRect(workspace.right() - overlayDetailsWidth, workspace.y, overlayDetailsWidth, workspace.height);
         rightPanel = new LayoutRect(detailsPanel.x, detailsPanel.y, previewDockPanel.right() - detailsPanel.x, detailsPanel.height);
         modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
-        inspectorBodyRect = new LayoutRect(detailsPanel.x + INSET, detailsPanel.y + 32, detailsPanel.width - INSET * 2,
+        inspectorBodyRect = new LayoutRect(detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.unit * 2 + uiMetrics.gap,
+                detailsPanel.width - uiMetrics.inset * 2,
                 Math.max(120, detailsPanel.height - 44));
-        detailsSplitter = new LayoutRect(detailsPanel.x - SPLITTER_SIZE / 2, workspace.y, SPLITTER_SIZE, workspace.height);
-        previewSplitter = new LayoutRect(previewDockPanel.x - SPLITTER_SIZE / 2, workspace.y, SPLITTER_SIZE, workspace.height);
-        bottomSplitter = new LayoutRect(leftBar.right() + GAP, bottomBar.y - SPLITTER_SIZE / 2, uiWidth - (leftBar.right() + GAP), SPLITTER_SIZE);
+        detailsSplitter = new LayoutRect(detailsPanel.x - uiMetrics.splitterSize / 2, workspace.y, uiMetrics.splitterSize, workspace.height);
+        previewSplitter = new LayoutRect(previewDockPanel.x - uiMetrics.splitterSize / 2, workspace.y, uiMetrics.splitterSize, workspace.height);
+        bottomSplitter = new LayoutRect(leftBar.right() + uiMetrics.gap, bottomBar.y - uiMetrics.splitterSize / 2,
+                uiWidth - (leftBar.right() + uiMetrics.gap), uiMetrics.splitterSize);
         parameterViewport = null;
         moduleListViewport = null;
         messageLogRect = null;
     }
 
     private void buildTopToolbar() {
-        TopBarLayout layout = computeTopBarLayout();
+        PcgTopBarLayoutSpec layout = computeTopBarLayout();
         int x = layout.actionStart();
-        previewButton = addButton("preview", x, layout.buttonY(), layout.previewWidth(), TOP_BUTTON_HEIGHT, layout.previewLabel(), false, false, () -> generatePreview(false));
-        regenerateButton = addButton("regenerate", x + layout.previewWidth() + layout.actionGap(), layout.buttonY(), layout.regenerateWidth(), TOP_BUTTON_HEIGHT,
+        previewButton = addButton("preview", x, layout.buttonY(), layout.previewWidth(), uiMetrics.topButtonHeight, layout.previewLabel(), false, false, () -> generatePreview(false));
+        regenerateButton = addButton("regenerate", x + layout.previewWidth() + layout.actionGap(), layout.buttonY(), layout.regenerateWidth(), uiMetrics.topButtonHeight,
                 layout.regenerateLabel(), false, false, () -> generatePreview(true));
         bakeButton = addButton("bake", x + layout.previewWidth() + layout.regenerateWidth() + layout.actionGap() * 2, layout.buttonY(), layout.smallWidth(),
-                TOP_BUTTON_HEIGHT, "Bake", false, false, this::requestBake);
+                uiMetrics.topButtonHeight, "Bake", false, false, this::requestBake);
         undoButton = addButton("undo", x + layout.previewWidth() + layout.regenerateWidth() + layout.smallWidth() + layout.actionGap() * 3,
-                layout.buttonY(), layout.smallWidth(), TOP_BUTTON_HEIGHT, "Undo", false, false,
+                layout.buttonY(), layout.smallWidth(), uiMetrics.topButtonHeight, "Undo", false, false,
                 () -> runAction("blockwright undo", PcgEditorLogEntry.Severity.INFO, "Undo requested."));
         redoButton = addButton("redo", x + layout.previewWidth() + layout.regenerateWidth() + layout.smallWidth() * 2 + layout.actionGap() * 4,
-                layout.buttonY(), layout.smallWidth(), TOP_BUTTON_HEIGHT, "Redo", false, false,
+                layout.buttonY(), layout.smallWidth(), uiMetrics.topButtonHeight, "Redo", false, false,
                 () -> session.log(PcgEditorLogEntry.Severity.DEBUG, "Redo is not implemented in this MVP."));
         reloadButton = addButton("reload", x + layout.previewWidth() + layout.regenerateWidth() + layout.smallWidth() * 3 + layout.actionGap() * 5,
-                layout.buttonY(), layout.smallWidth(), TOP_BUTTON_HEIGHT, "Reload", false, false, this::reloadPacks);
+                layout.buttonY(), layout.smallWidth(), uiMetrics.topButtonHeight, "Reload", false, false, this::reloadPacks);
         exitButton = addButton("exit", x + layout.previewWidth() + layout.regenerateWidth() + layout.smallWidth() * 4 + layout.actionGap() * 6,
-                layout.buttonY(), layout.exitWidth(), TOP_BUTTON_HEIGHT, "Exit", false, false, this::onClose);
+                layout.buttonY(), layout.exitWidth(), uiMetrics.topButtonHeight, "Exit", false, false, this::onClose);
 
-        addButton("pack_prev", layout.packX(), layout.buttonY(), 20, TOP_BUTTON_HEIGHT, "<", false, false, () -> cyclePack(-1));
-        addButton("pack_next", layout.packX() + layout.clusterWidth() - 20, layout.buttonY(), 20, TOP_BUTTON_HEIGHT, ">", false, false, () -> cyclePack(1));
-        addButton("preset_prev", layout.presetX(), layout.buttonY(), 20, TOP_BUTTON_HEIGHT, "<", false, false, () -> cyclePreset(-1));
-        addButton("preset_next", layout.presetX() + layout.clusterWidth() - 20, layout.buttonY(), 20, TOP_BUTTON_HEIGHT, ">", false, false, () -> cyclePreset(1));
+        addButton("pack_prev", layout.packX(), layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, "<", false, false, () -> cyclePack(-1));
+        addButton("pack_next", layout.packX() + layout.clusterWidth() - uiMetrics.unit * 2, layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, ">", false, false, () -> cyclePack(1));
+        addButton("preset_prev", layout.presetX(), layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, "<", false, false, () -> cyclePreset(-1));
+        addButton("preset_next", layout.presetX() + layout.clusterWidth() - uiMetrics.unit * 2, layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, ">", false, false, () -> cyclePreset(1));
     }
 
     private void buildToolPalette() {
-        int buttonWidth = leftBar.width - 16;
-        int x = leftBar.x + 8;
-        int y = leftBar.y + 8;
-        int gap = 4;
+        int buttonWidth = leftBar.width - uiMetrics.inset * 2;
+        int x = leftBar.x + uiMetrics.inset;
+        int y = leftBar.y + uiMetrics.inset;
+        int gap = uiMetrics.gap * 3;
         int toolHeight = computeToolButtonHeight();
         for (PcgEditorTool tool : PcgEditorTool.values()) {
             boolean disabled = tool == PcgEditorTool.PAINT_MASK;
@@ -557,28 +543,28 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void buildInspectorControls() {
-        int innerX = detailsPanel.x + INSET;
-        int innerWidth = detailsPanel.width - INSET * 2;
+        int innerX = detailsPanel.x + uiMetrics.inset;
+        int innerWidth = detailsPanel.width - uiMetrics.inset * 2;
         maxInspectorScroll = Math.max(0, measureInspectorContentHeight() - (inspectorBodyRect.height - 12));
         inspectorScroll = clamp(inspectorScroll, 0, maxInspectorScroll);
-        int y = inspectorBodyRect.y + 12 - inspectorScroll;
+        int y = inspectorBodyRect.y + uiMetrics.inset - inspectorScroll;
 
-        y += 24 + 40;
-        y += 24;
+        y += uiMetrics.unit * 2 + uiMetrics.rowHeight;
+        y += uiMetrics.unit * 2;
         if (isTransformSelection()) {
-            int fieldGap = 8;
-            int fieldWidth = clamp((innerWidth - 42 - fieldGap * 2) / 3, 58, 86);
-            int fieldY = y + 18;
-            transformXField = addField("transform_x", innerX + 42, fieldY, fieldWidth, FIELD_HEIGHT,
+            int fieldGap = uiMetrics.gap * 4;
+            int fieldWidth = clamp((innerWidth - 42 - fieldGap * 2) / 3, uiMetrics.unit * 5, uiMetrics.unit * 7);
+            int fieldY = y + uiMetrics.unit + 2;
+            transformXField = addField("transform_x", innerX + 42, fieldY, fieldWidth, uiMetrics.fieldHeight,
                     String.valueOf(currentTransformOrigin().getX()), true, text -> {
             });
-            transformYField = addField("transform_y", innerX + 42 + fieldWidth + fieldGap, fieldY, fieldWidth, FIELD_HEIGHT,
+            transformYField = addField("transform_y", innerX + 42 + fieldWidth + fieldGap, fieldY, fieldWidth, uiMetrics.fieldHeight,
                     String.valueOf(currentTransformOrigin().getY()), true, text -> {
             });
-            transformZField = addField("transform_z", innerX + 42 + (fieldWidth + fieldGap) * 2, fieldY, fieldWidth, FIELD_HEIGHT,
+            transformZField = addField("transform_z", innerX + 42 + (fieldWidth + fieldGap) * 2, fieldY, fieldWidth, uiMetrics.fieldHeight,
                     String.valueOf(currentTransformOrigin().getZ()), true, text -> {
             });
-            transformApplyButton = addButton("transform_apply", innerX + innerWidth - 78, fieldY, 78, TOP_BUTTON_HEIGHT,
+            transformApplyButton = addButton("transform_apply", innerX + innerWidth - uiMetrics.unit * 7, fieldY, uiMetrics.unit * 7, uiMetrics.topButtonHeight,
                     "Apply", false, false, this::applyTransformEdit);
             applyClipVisibility(transformXField, inspectorBodyRect);
             applyClipVisibility(transformYField, inspectorBodyRect);
@@ -587,15 +573,15 @@ public final class PcgEditorScreen extends Screen {
         }
 
         y += transformSectionHeight();
-        y += 24 + 36;
-        y += 24 + 36;
-        y += 24;
+        y += uiMetrics.unit * 2 + uiMetrics.rowHeight;
+        y += uiMetrics.unit * 2 + uiMetrics.rowHeight;
+        y += uiMetrics.unit * 2;
         PresetDefinition preset = session.getSelectedPreset();
         parameterViewport = new LayoutRect(innerX, y, innerWidth, parameterRowsHeight());
         if (preset != null) {
-            int labelWidth = Math.min(128, Math.max(84, innerWidth / 3));
-            int fieldX = innerX + labelWidth + 8;
-            int fieldWidth = innerWidth - labelWidth - 8;
+            int labelWidth = Math.min(uiMetrics.unit * 10, Math.max(uiMetrics.unit * 7, innerWidth / 3));
+            int fieldX = innerX + labelWidth + uiMetrics.gap * 4;
+            int fieldWidth = innerWidth - labelWidth - uiMetrics.gap * 4;
             int rowIndex = 0;
             for (Map.Entry<String, PresetParameterDefinition> entry : preset.parameters.entrySet()) {
                 if (!entry.getValue().exposed) {
@@ -605,7 +591,7 @@ public final class PcgEditorScreen extends Screen {
                         ? parameterOverrides.get(entry.getKey())
                         : entry.getValue().defaultValue == null ? "" : entry.getValue().defaultValue.getAsString();
                 parameterOverrides.putIfAbsent(entry.getKey(), value);
-                EditorField field = addField("param_" + entry.getKey(), fieldX, 0, fieldWidth, FIELD_HEIGHT, value, false, text -> {
+                EditorField field = addField("param_" + entry.getKey(), fieldX, 0, fieldWidth, uiMetrics.fieldHeight, value, false, text -> {
                     parameterOverrides.put(entry.getKey(), text);
                     session.markDirty("Parameter changed: " + entry.getKey());
                 });
@@ -615,16 +601,16 @@ public final class PcgEditorScreen extends Screen {
         }
 
         y += parameterRowsHeight();
-        y += 24 + validationContentHeight();
-        y += 24;
+        y += uiMetrics.unit * 2 + validationContentHeight();
+        y += uiMetrics.unit * 2;
         int actionsTop = y;
-        int actionGap = 6;
-        int focusWidth = Math.max(76, (innerWidth - actionGap * 2 - 108) / 2);
+        int actionGap = uiMetrics.gap * 4;
+        int focusWidth = Math.max(uiMetrics.unit * 6, (innerWidth - actionGap * 2 - uiMetrics.unit * 9) / 2);
         int deleteWidth = focusWidth;
         int clearWidth = innerWidth - focusWidth - deleteWidth - actionGap * 2;
-        focusButton = addButton("focus", innerX, actionsTop, focusWidth, TOP_BUTTON_HEIGHT, "Focus", false, false, this::focusSelection);
-        deleteButton = addButton("delete", innerX + focusWidth + actionGap, actionsTop, deleteWidth, TOP_BUTTON_HEIGHT, "Delete", false, true, this::deleteSelection);
-        clearPreviewButton = addButton("clear_preview", innerX + focusWidth + deleteWidth + actionGap * 2, actionsTop, clearWidth, TOP_BUTTON_HEIGHT, "Clear Preview", false, false,
+        focusButton = addButton("focus", innerX, actionsTop, focusWidth, uiMetrics.topButtonHeight, "Focus", false, false, this::focusSelection);
+        deleteButton = addButton("delete", innerX + focusWidth + actionGap, actionsTop, deleteWidth, uiMetrics.topButtonHeight, "Delete", false, true, this::deleteSelection);
+        clearPreviewButton = addButton("clear_preview", innerX + focusWidth + deleteWidth + actionGap * 2, actionsTop, clearWidth, uiMetrics.topButtonHeight, "Clear Preview", false, false,
                 () -> runAction("blockwright preview clear", PcgEditorLogEntry.Severity.INFO, "Cleared preview."));
         applyClipVisibility(focusButton, inspectorBodyRect);
         applyClipVisibility(deleteButton, inspectorBodyRect);
@@ -632,84 +618,84 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void buildModuleLibraryControls() {
-        int innerX = detailsPanel.x + INSET;
-        int innerWidth = detailsPanel.width - INSET * 2;
-        int y = inspectorBodyRect.y + 12;
-        addField("module_search", innerX, y + 18, innerWidth, FIELD_HEIGHT,
+        int innerX = detailsPanel.x + uiMetrics.inset;
+        int innerWidth = detailsPanel.width - uiMetrics.inset * 2;
+        int y = inspectorBodyRect.y + uiMetrics.inset;
+        addField("module_search", innerX, y + uiMetrics.unit + 2, innerWidth, uiMetrics.fieldHeight,
                 session.getModuleSearchQuery(), false, value -> {
                     session.setModuleSearchQuery(value);
                     refreshVisibleModules();
                 });
-        addField("module_tag", innerX, y + 46, innerWidth, FIELD_HEIGHT,
+        addField("module_tag", innerX, y + uiMetrics.rowHeight + uiMetrics.unit, innerWidth, uiMetrics.fieldHeight,
                 session.getModuleTagQuery(), false, value -> {
                     session.setModuleTagQuery(value);
                     refreshVisibleModules();
                 });
-        moduleKindButton = addButton("module_kind", innerX, y + 74, innerWidth, TOP_BUTTON_HEIGHT, moduleKindLabel(),
+        moduleKindButton = addButton("module_kind", innerX, y + uiMetrics.rowHeight * 2, innerWidth, uiMetrics.topButtonHeight, moduleKindLabel(),
                 false, false, () -> {
                     session.cycleModuleKindFilter();
                     refreshVisibleModules();
                     rebuildUi();
                 });
-        moduleStyleField = addField("module_style", innerX, y + 104, innerWidth, FIELD_HEIGHT,
+        moduleStyleField = addField("module_style", innerX, y + uiMetrics.rowHeight * 3, innerWidth, uiMetrics.fieldHeight,
                 session.getModuleStyleQuery(), false, value -> {
                     session.setModuleStyleQuery(value);
                     refreshVisibleModules();
                 });
-        moduleCategoryField = addField("module_category", innerX, y + 132, innerWidth, FIELD_HEIGHT,
+        moduleCategoryField = addField("module_category", innerX, y + uiMetrics.rowHeight * 4, innerWidth, uiMetrics.fieldHeight,
                 session.getModuleCategoryQuery(), false, value -> {
                     session.setModuleCategoryQuery(value);
                     refreshVisibleModules();
                 });
-        moduleModStatusButton = addButton("module_mod_status", innerX, y + 160, innerWidth, TOP_BUTTON_HEIGHT, moduleModStatusLabel(),
+        moduleModStatusButton = addButton("module_mod_status", innerX, y + uiMetrics.rowHeight * 5, innerWidth, uiMetrics.topButtonHeight, moduleModStatusLabel(),
                 false, false, () -> {
                     session.cycleModuleModStatusFilter();
                     refreshVisibleModules();
                     rebuildUi();
                 });
-        moduleExportField = addField("module_export", innerX, y + 190, innerWidth, FIELD_HEIGHT,
+        moduleExportField = addField("module_export", innerX, y + uiMetrics.rowHeight * 6, innerWidth, uiMetrics.fieldHeight,
                 session.getExportModuleId(), false, session::setExportModuleId);
-        moduleExportButton = addButton("module_export_button", innerX, y + 218, innerWidth, TOP_BUTTON_HEIGHT, "Export Region",
+        moduleExportButton = addButton("module_export_button", innerX, y + uiMetrics.rowHeight * 7, innerWidth, uiMetrics.topButtonHeight, "Export Region",
                 false, false, this::exportRegionAsModule);
 
-        int listTop = y + 258;
-        int listBottom = inspectorBodyRect.bottom() - 14;
+        int listTop = y + uiMetrics.rowHeight * 8 + uiMetrics.gap * 2;
+        int listBottom = inspectorBodyRect.bottom() - uiMetrics.inset;
         moduleListViewport = new LayoutRect(innerX, listTop, innerWidth, Math.max(96, listBottom - listTop));
         refreshVisibleModules();
     }
 
     private void buildModulePreviewControls() {
-        int x = modulePreviewPanel.x + 10;
-        int width = modulePreviewPanel.width - 20;
-        int buttonY = modulePreviewPanel.bottom() - 58;
-        int buttonWidth = (width - 16) / 3;
-        moduleRotateButton = addButton("module_rotate", x, buttonY, buttonWidth, TOP_BUTTON_HEIGHT, "Rotate", false, false,
+        int x = modulePreviewPanel.x + uiMetrics.inset;
+        int width = modulePreviewPanel.width - uiMetrics.inset * 2;
+        int buttonY = modulePreviewPanel.bottom() - uiMetrics.unit * 5;
+        int buttonWidth = (width - uiMetrics.gap * 8) / 3;
+        moduleRotateButton = addButton("module_rotate", x, buttonY, buttonWidth, uiMetrics.topButtonHeight, "Rotate", false, false,
                 () -> {
                     session.rotateModulePreview();
                     rebuildUi();
                 });
-        moduleZoomOutButton = addButton("module_zoom_out", x + buttonWidth + 8, buttonY, buttonWidth, TOP_BUTTON_HEIGHT, "Zoom-", false, false,
+        moduleZoomOutButton = addButton("module_zoom_out", x + buttonWidth + uiMetrics.gap * 4, buttonY, buttonWidth, uiMetrics.topButtonHeight, "Zoom-", false, false,
                 () -> {
                     session.zoomModulePreview(-25);
                     rebuildUi();
                 });
-        moduleZoomInButton = addButton("module_zoom_in", x + (buttonWidth + 8) * 2, buttonY, buttonWidth, TOP_BUTTON_HEIGHT, "Zoom+", false, false,
+        moduleZoomInButton = addButton("module_zoom_in", x + (buttonWidth + uiMetrics.gap * 4) * 2, buttonY, buttonWidth, uiMetrics.topButtonHeight, "Zoom+", false, false,
                 () -> {
                     session.zoomModulePreview(25);
                     rebuildUi();
                 });
-        int toggleY = modulePreviewPanel.bottom() - 30;
-        moduleBoundsButton = addButton("module_bounds", x, toggleY, buttonWidth, TOP_BUTTON_HEIGHT, toggleLabel("Bounds", session.isShowModuleBounds()),
+        int toggleY = modulePreviewPanel.bottom() - uiMetrics.topButtonHeight - uiMetrics.gap * 2;
+        moduleBoundsButton = addButton("module_bounds", x, toggleY, buttonWidth, uiMetrics.topButtonHeight, toggleLabel("Bounds", session.isShowModuleBounds()),
                 false, false, () -> {
                     session.setShowModuleBounds(!session.isShowModuleBounds());
                     rebuildUi();
                 });
-        moduleConnectorsButton = addButton("module_connectors", x + buttonWidth + 8, toggleY, buttonWidth, TOP_BUTTON_HEIGHT,
+        moduleConnectorsButton = addButton("module_connectors", x + buttonWidth + uiMetrics.gap * 4, toggleY, buttonWidth, uiMetrics.topButtonHeight,
                 toggleLabel("Conn", session.isShowModuleConnectors()), false, false, () -> {
                     session.setShowModuleConnectors(!session.isShowModuleConnectors());
                     rebuildUi();
                 });
-        moduleAirButton = addButton("module_air", x + (buttonWidth + 8) * 2, toggleY, buttonWidth, TOP_BUTTON_HEIGHT, toggleLabel("Air", session.isShowModuleAir()),
+        moduleAirButton = addButton("module_air", x + (buttonWidth + uiMetrics.gap * 4) * 2, toggleY, buttonWidth, uiMetrics.topButtonHeight, toggleLabel("Air", session.isShowModuleAir()),
                 false, false, () -> {
                     session.setShowModuleAir(!session.isShowModuleAir());
                     rebuildUi();
@@ -718,15 +704,15 @@ public final class PcgEditorScreen extends Screen {
 
     private void drawTopBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         drawPanel(guiGraphics, topBar, true);
-        guiGraphics.fill(topBar.x + 8, topBar.y + 8, topBar.x + 34, topBar.y + topBar.height - 8, PANEL_ACCENT);
+        guiGraphics.fill(topBar.x + uiMetrics.inset - 2, topBar.y + uiMetrics.gap * 4, topBar.x + uiMetrics.inset + uiMetrics.unit * 2, topBar.y + topBar.height - uiMetrics.gap * 4, PANEL_ACCENT);
         int textY = topBar.y + (topBar.height - 8) / 2;
         guiGraphics.drawString(this.font, "BW", topBar.x + 15, textY, TEXT_BRIGHT);
-        TopBarLayout layout = computeTopBarLayout();
+        PcgTopBarLayoutSpec layout = computeTopBarLayout();
         guiGraphics.drawString(this.font, layout.title(), topBar.x + 46, textY, TEXT_BRIGHT);
-        int chipY = topBar.y + (topBar.height - (TOP_BUTTON_HEIGHT + 4)) / 2;
-        LayoutRect packRect = new LayoutRect(layout.packX() + 24, chipY, layout.clusterWidth() - 48, TOP_BUTTON_HEIGHT + 4);
-        LayoutRect modeRect = new LayoutRect(layout.modeX(), chipY, layout.modeWidth(), TOP_BUTTON_HEIGHT + 4);
-        LayoutRect presetRect = new LayoutRect(layout.presetX() + 24, chipY, layout.clusterWidth() - 48, TOP_BUTTON_HEIGHT + 4);
+        int chipY = topBar.y + (topBar.height - (uiMetrics.topButtonHeight + 4)) / 2;
+        LayoutRect packRect = new LayoutRect(layout.packX() + uiMetrics.unit * 2, chipY, layout.clusterWidth() - uiMetrics.unit * 4, uiMetrics.topButtonHeight + 4);
+        LayoutRect modeRect = new LayoutRect(layout.modeX(), chipY, layout.modeWidth(), uiMetrics.topButtonHeight + 4);
+        LayoutRect presetRect = new LayoutRect(layout.presetX() + uiMetrics.unit * 2, chipY, layout.clusterWidth() - uiMetrics.unit * 4, uiMetrics.topButtonHeight + 4);
         drawToolbarChip(guiGraphics, modeRect, "MODE", "Build", TEXT_GREEN);
         drawToolbarChip(guiGraphics, packRect, "PACK", session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, TEXT_BRIGHT);
         drawToolbarChip(guiGraphics, presetRect, "PRESET", session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, TEXT_BRIGHT);
@@ -769,7 +755,7 @@ public final class PcgEditorScreen extends Screen {
         if (previewSplitter != null) {
             drawLayoutHandle(guiGraphics, previewSplitter, true);
         }
-        guiGraphics.drawString(this.font, "DETAILS", detailsPanel.x + INSET, detailsPanel.y + 10, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "DETAILS", detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.inset, TEXT_BRIGHT);
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             drawModuleLibrary(guiGraphics);
         } else {
@@ -849,7 +835,7 @@ public final class PcgEditorScreen extends Screen {
                 modulePreviewPanel.width - 20, previewHeight, module,
                 session.getModuleRotationQuarterTurns(), session.getModulePreviewZoomPercent(),
                 session.isShowModuleBounds(), session.isShowModuleConnectors(), session.isShowModuleAir());
-        int textY = modulePreviewPanel.y + previewHeight + 34;
+        int textY = modulePreviewPanel.y + previewHeight + uiMetrics.unit * 3;
         if (module == null) {
             guiGraphics.drawString(this.font, "No module selected.", modulePreviewPanel.x + 10, textY, TEXT_MUTED);
             return;
@@ -881,10 +867,10 @@ public final class PcgEditorScreen extends Screen {
         if (bottomSplitter != null) {
             drawLayoutHandle(guiGraphics, bottomSplitter, false);
         }
-        int contentX = bottomBar.x + 8;
-        int contentY = bottomBar.y + 8;
-        int contentHeight = bottomBar.height - 16;
-        int totalWidth = bottomBar.width - 16;
+        int contentX = bottomBar.x + uiMetrics.inset;
+        int contentY = bottomBar.y + uiMetrics.inset;
+        int contentHeight = bottomBar.height - uiMetrics.inset * 2;
+        int totalWidth = bottomBar.width - uiMetrics.inset * 2;
         int sectionWidth = clamp(totalWidth / 7, 150, 196);
         int statsWidth = clamp(totalWidth / 7, 160, 210);
         int warningWidth = clamp(totalWidth / 5, 210, 320);
@@ -957,13 +943,13 @@ public final class PcgEditorScreen extends Screen {
         int buttonWidth = 108;
         int y = dialog.bottom() - 36;
         EditorButton cancel = new EditorButton("confirm_cancel",
-                new LayoutRect(dialog.right() - buttonWidth * 2 - 20, y, buttonWidth, TOP_BUTTON_HEIGHT),
+                new LayoutRect(dialog.right() - buttonWidth * 2 - 20, y, buttonWidth, uiMetrics.topButtonHeight),
                 "Cancel", false, false, () -> {
             showBakeConfirm = false;
             session.log(PcgEditorLogEntry.Severity.INFO, "Bake cancelled.");
         });
         EditorButton confirm = new EditorButton("confirm_bake",
-                new LayoutRect(dialog.right() - buttonWidth - 10, y, buttonWidth, TOP_BUTTON_HEIGHT),
+                new LayoutRect(dialog.right() - buttonWidth - 10, y, buttonWidth, uiMetrics.topButtonHeight),
                 "Bake", false, true, this::confirmBake);
         return List.of(cancel, confirm);
     }
@@ -1002,20 +988,20 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.fill(moduleListViewport.x, moduleListViewport.bottom() - 1, moduleListViewport.right(), moduleListViewport.bottom(), PANEL_BORDER);
         enableUiScissor(guiGraphics, moduleListViewport);
         int rowY = moduleListViewport.y;
-        int maxRows = Math.max(1, moduleListViewport.height / MODULE_ROW_HEIGHT);
+        int maxRows = Math.max(1, moduleListViewport.height / uiMetrics.moduleRowHeight);
         int end = Math.min(visibleModules.size(), moduleListScroll + maxRows);
         ModuleDefinition selectedModule = session.getSelectedModule();
         for (int i = moduleListScroll; i < end; i++) {
             ModuleDefinition module = visibleModules.get(i);
             boolean selected = selectedModule != null && module.id.equals(selectedModule.id);
-            int rowBottom = rowY + MODULE_ROW_HEIGHT - 2;
+            int rowBottom = rowY + uiMetrics.moduleRowHeight - 2;
             guiGraphics.fill(moduleListViewport.x + 1, rowY + 1, moduleListViewport.right() - 1, rowBottom,
                     selected ? PANEL_ACCENT_SOFT : 0x00000000);
             guiGraphics.drawString(this.font, trimToWidth(module.id, moduleListViewport.width - 18), moduleListViewport.x + 10, rowY + 5,
                     selected ? TEXT_BRIGHT : TEXT_MUTED);
             guiGraphics.drawString(this.font, trimToWidth(safe(module.moduleKind), moduleListViewport.width - 18), moduleListViewport.x + 10, rowY + 16,
                     selected ? TEXT_BLUE : TEXT_MUTED);
-            rowY += MODULE_ROW_HEIGHT;
+            rowY += uiMetrics.moduleRowHeight;
         }
         guiGraphics.disableScissor();
     }
@@ -1040,13 +1026,13 @@ public final class PcgEditorScreen extends Screen {
         for (int i = logScroll; i < Math.min(entries.size(), logScroll + 4); i++) {
             PcgEditorLogEntry entry = entries.get(i);
             guiGraphics.drawString(this.font, trimToWidth(entry.getMessage(), rect.width - 16), rect.x + 8, y, logColor(entry));
-            y += LOG_ROW_HEIGHT;
+            y += uiMetrics.logRowHeight;
         }
     }
 
     private int drawSectionHeader(GuiGraphics guiGraphics, int y, String title) {
         guiGraphics.fill(detailsPanel.x + 1, y, detailsPanel.right() - 1, y + 16, PANEL_HEADER);
-        guiGraphics.drawString(this.font, title, detailsPanel.x + INSET, y + 4, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, title, detailsPanel.x + uiMetrics.inset, y + 4, TEXT_BRIGHT);
         return y + 24;
     }
 
@@ -1154,17 +1140,17 @@ public final class PcgEditorScreen extends Screen {
         switch (activeDragHandle) {
             case DETAILS -> {
                 int newWidth = workspace.right() - (int) Math.round(mouseX);
-                detailsPanelWidth = clamp(newWidth, MIN_DETAILS_WIDTH, Math.max(MIN_DETAILS_WIDTH, workspace.width - 200));
+                detailsPanelWidth = clamp(newWidth, uiMetrics.minDetailsWidth, Math.max(uiMetrics.minDetailsWidth, workspace.width - uiMetrics.unit * 12));
                 rebuildUi();
             }
             case PREVIEW -> {
                 int newWidth = uiWidth - (int) Math.round(mouseX);
-                previewPanelWidth = clamp(newWidth, MIN_PREVIEW_WIDTH, MAX_PREVIEW_WIDTH);
+                previewPanelWidth = clamp(newWidth, uiMetrics.minPreviewWidth, uiMetrics.maxPreviewWidth);
                 rebuildUi();
             }
             case BOTTOM -> {
                 int newHeight = uiHeight - (int) Math.round(mouseY);
-                bottomBarHeight = clamp(newHeight, MIN_BOTTOM_BAR_HEIGHT, MAX_BOTTOM_BAR_HEIGHT);
+                bottomBarHeight = clamp(newHeight, uiMetrics.minBottomBarHeight, uiMetrics.maxBottomBarHeight);
                 rebuildUi();
             }
             case NONE -> {
@@ -1279,7 +1265,7 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         for (ParameterField parameterField : parameterFields) {
-            int y = parameterViewport.y + parameterField.rowIndex * ROW_HEIGHT + 4;
+            int y = parameterViewport.y + parameterField.rowIndex * uiMetrics.rowHeight + 4;
             parameterField.field.bounds = new LayoutRect(parameterField.field.bounds.x, y, parameterField.field.bounds.width, parameterField.field.bounds.height);
             parameterField.field.visible = rectIntersects(parameterField.field.bounds, inspectorBodyRect);
             if (!parameterField.field.visible && parameterField.field.focused) {
@@ -1298,7 +1284,7 @@ public final class PcgEditorScreen extends Screen {
         visibleModules.clear();
         visibleModules.addAll(getFilteredModules(session.getSelectedPack()));
         if (moduleListViewport != null) {
-            int maxRows = Math.max(1, moduleListViewport.height / MODULE_ROW_HEIGHT);
+            int maxRows = Math.max(1, moduleListViewport.height / uiMetrics.moduleRowHeight);
             maxModuleListScroll = Math.max(0, visibleModules.size() - maxRows);
             moduleListScroll = clamp(moduleListScroll, 0, maxModuleListScroll);
         }
@@ -1393,7 +1379,7 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private boolean selectModuleFromList(double mouseY) {
-        int index = (int) ((mouseY - moduleListViewport.y) / MODULE_ROW_HEIGHT) + moduleListScroll;
+        int index = (int) ((mouseY - moduleListViewport.y) / uiMetrics.moduleRowHeight) + moduleListScroll;
         if (index < 0 || index >= visibleModules.size()) {
             return false;
         }
@@ -2088,41 +2074,11 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private int computeToolButtonHeight() {
-        int toolCount = PcgEditorTool.values().length;
-        int gap = 4;
-        int available = leftBar.height - 16 - (toolCount - 1) * gap;
-        return clamp(available / Math.max(1, toolCount), 44, 62);
+        return PcgToolPaletteLayout.computeButtonHeight(uiMetrics, leftBar.height, PcgEditorTool.values().length);
     }
 
-    private TopBarLayout computeTopBarLayout() {
-        int buttonY = topBar.y + (topBar.height - TOP_BUTTON_HEIGHT) / 2;
-        boolean compact = uiWidth < 1500;
-        String title = compact ? "PCG" : "PCG EDITOR";
-        int actionGap = compact ? 4 : 6;
-        int exitWidth = compact ? 70 : 76;
-        int smallWidth = compact ? 74 : 82;
-        int previewWidth = compact ? 84 : 104;
-        int regenerateWidth = compact ? 98 : 120;
-        String previewLabel = compact ? "Prev" : "Preview";
-        String regenerateLabel = compact ? "Regen" : "Regenerate";
-        int actionsWidth = previewWidth + regenerateWidth + exitWidth + smallWidth * 4 + actionGap * 6;
-        int actionStart = topBar.right() - 12 - actionsWidth;
-        int titleEnd = topBar.x + 46 + this.font.width(title) + 12;
-        if (actionStart - titleEnd < 280) {
-            title = "BW";
-            titleEnd = topBar.x + 46 + this.font.width(title) + 12;
-        }
-        int chipGap = 8;
-        int chipStart = titleEnd + 12;
-        int chipAvailable = Math.max(236, actionStart - chipStart - 12);
-        int modeWidth = clamp(chipAvailable / 4, 92, compact ? 112 : 128);
-        int clusterWidth = Math.max(92, (chipAvailable - modeWidth - chipGap * 2) / 2);
-        int packX = chipStart;
-        int modeX = packX + clusterWidth + chipGap;
-        int presetX = modeX + modeWidth + chipGap;
-        return new TopBarLayout(buttonY, actionGap, smallWidth, previewWidth, regenerateWidth,
-                exitWidth, actionStart, clusterWidth, packX, modeX, modeWidth, presetX,
-                title, previewLabel, regenerateLabel);
+    private PcgTopBarLayoutSpec computeTopBarLayout() {
+        return PcgTopBarLayoutSpec.compute(uiMetrics, uiWidth, topBar.x, topBar.right(), this.font);
     }
 
     private void updateUiMetrics() {
@@ -2131,6 +2087,7 @@ public final class PcgEditorScreen extends Screen {
         uiHeight = this.height;
         uiOffsetX = 0.0D;
         uiOffsetY = 0.0D;
+        uiMetrics = PcgUiMetrics.from(uiWidth, uiHeight, this.font.lineHeight);
     }
 
     private void beginUi(GuiGraphics guiGraphics) {
@@ -2172,34 +2129,20 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private int transformSectionHeight() {
-        if (session.getSelection() == PcgEditorSelection.REGION || session.getSelection() == PcgEditorSelection.SPLINE_POINT) {
-            return 92;
-        }
-        if (session.getSelection() == PcgEditorSelection.SPLINE) {
-            return 52;
-        }
-        return 44;
+        return PcgInspectorLayout.transformSectionHeight(uiMetrics, session.getSelection());
     }
 
     private int parameterRowsHeight() {
-        int rows = countExposedParameters();
-        return Math.max(22, rows == 0 ? 22 : rows * ROW_HEIGHT);
+        return PcgInspectorLayout.parameterRowsHeight(uiMetrics, countExposedParameters());
     }
 
     private int validationContentHeight() {
-        List<String> warnings = getWarningSummary();
-        return warnings.isEmpty() ? 34 : 18 + Math.min(3, warnings.size()) * 12;
+        return PcgInspectorLayout.validationContentHeight(uiMetrics, getWarningSummary().size());
     }
 
     private int measureInspectorContentHeight() {
-        return 12
-                + 24 + 40
-                + 24 + transformSectionHeight()
-                + 24 + 36
-                + 24 + 36
-                + 24 + parameterRowsHeight()
-                + 24 + validationContentHeight()
-                + 24 + TOP_BUTTON_HEIGHT + 8;
+        return PcgInspectorLayout.measureContentHeight(uiMetrics, session.getSelection(),
+                countExposedParameters(), getWarningSummary().size());
     }
 
     private int countExposedParameters() {
@@ -2483,11 +2426,6 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private record ParameterField(String key, int rowIndex, EditorField field) {
-    }
-
-    private record TopBarLayout(int buttonY, int actionGap, int smallWidth, int previewWidth, int regenerateWidth,
-                                int exitWidth, int actionStart, int clusterWidth, int packX, int modeX, int modeWidth,
-                                int presetX, String title, String previewLabel, String regenerateLabel) {
     }
 
     private enum DragHandle {
