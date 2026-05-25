@@ -2,16 +2,13 @@ package top.huliawsl.blockwright.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.glfw.GLFW;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.config.BlockwrightConfig;
-import top.huliawsl.blockwright.module.model.ModuleConnector;
 import top.huliawsl.blockwright.module.model.ModuleDefinition;
 import top.huliawsl.blockwright.pack.LoadedPack;
 import top.huliawsl.blockwright.pack.SpongeSchematicData;
@@ -31,89 +28,95 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public final class PcgEditorScreen extends Screen {
-    private static final int PANEL_BG = 0xD40F1318;
-    private static final int PANEL_BORDER = 0xFF2A3139;
-    private static final int PANEL_HEADER = 0xE01B2128;
-    private static final int PANEL_ACCENT = 0x7F202A35;
-    private static final int TEXT_BRIGHT = 0xFFF7FAFD;
-    private static final int TEXT_MUTED = 0xFF95A0AD;
-    private static final int TEXT_GREEN = 0xFF7FDB8B;
-    private static final int TEXT_YELLOW = 0xFFF4C957;
-    private static final int TEXT_RED = 0xFFF17070;
-    private static final int TEXT_BLUE = 0xFF6BB7FF;
-    private static final int TEXT_MAGENTA = 0xFFD784FF;
-    private static final int TOOL_ACTIVE = 0xCC254C7A;
-    private static final int TOOL_DISABLED = 0x882E343B;
+    private static final int ROOT_BG = 0x28000000;
+    private static final int PANEL_BG = 0xD610141B;
+    private static final int PANEL_BORDER = 0xFF2E3640;
+    private static final int PANEL_HEADER = 0xEA1D232C;
+    private static final int PANEL_ACCENT = 0xEE273B52;
+    private static final int PANEL_ACCENT_SOFT = 0x88263C57;
+    private static final int BUTTON_BG = 0xFF2C3138;
+    private static final int BUTTON_HOVER = 0xFF3A434E;
+    private static final int BUTTON_ACTIVE = 0xFF27527F;
+    private static final int BUTTON_DANGER = 0xFF6B3535;
+    private static final int FIELD_BG = 0xFF0B0E12;
+    private static final int FIELD_BORDER = 0xFF6A737E;
+    private static final int TEXT_BRIGHT = 0xFFF3F6FA;
+    private static final int TEXT_MUTED = 0xFF95A0AE;
+    private static final int TEXT_GREEN = 0xFF74D888;
+    private static final int TEXT_YELLOW = 0xFFF3C654;
+    private static final int TEXT_RED = 0xFFF07171;
+    private static final int TEXT_BLUE = 0xFF68B7FF;
+    private static final int TEXT_MAGENTA = 0xFFD786FF;
 
-    private static final int OUTER_PAD = 8;
-    private static final int TOP_BAR_HEIGHT = 46;
-    private static final int LEFT_BAR_WIDTH = 112;
-    private static final int RIGHT_PANEL_WIDTH = 432;
-    private static final int BOTTOM_BAR_HEIGHT = 116;
-    private static final int GAP = 8;
+    private static final int OUTER_PAD = 6;
+    private static final int GAP = 4;
     private static final int INSET = 10;
-    private static final int BUTTON_HEIGHT = 20;
-    private static final int FIELD_HEIGHT = 18;
-    private static final int TOOL_BUTTON_HEIGHT = 86;
-    private static final int PARAMETER_ROW_HEIGHT = 28;
-    private static final int MODULE_ROW_HEIGHT = 24;
-    private static final int LOG_ROW_HEIGHT = 14;
-    private static final int PREVIEW_PANEL_HEIGHT = 236;
+    private static final int TOP_BAR_HEIGHT = 48;
+    private static final int LEFT_BAR_WIDTH = 126;
+    private static final int RIGHT_PANEL_WIDTH = 470;
+    private static final int BOTTOM_BAR_HEIGHT = 128;
+    private static final int TOP_BUTTON_HEIGHT = 22;
+    private static final int TOOL_BUTTON_HEIGHT = 96;
+    private static final int FIELD_HEIGHT = 20;
+    private static final int ROW_HEIGHT = 28;
+    private static final int MODULE_ROW_HEIGHT = 28;
+    private static final int LOG_ROW_HEIGHT = 15;
+    private static final int MIN_PREVIEW_HEIGHT = 250;
 
     private final PcgEditorSession session = PcgEditorSession.get();
-    private final List<EditBox> parameterBoxes = new ArrayList<>();
-    private final List<String> parameterKeys = new ArrayList<>();
+    private final List<EditorButton> buttons = new ArrayList<>();
+    private final List<EditorField> fields = new ArrayList<>();
+    private final List<ParameterField> parameterFields = new ArrayList<>();
+    private final Map<String, String> parameterOverrides = new LinkedHashMap<>();
+    private final List<ModuleDefinition> visibleModules = new ArrayList<>();
 
-    private Button previewButton;
-    private Button regenerateButton;
-    private Button bakeButton;
-    private Button undoButton;
-    private Button redoButton;
-    private Button reloadButton;
-    private Button exitButton;
-    private EditBox transformXBox;
-    private EditBox transformYBox;
-    private EditBox transformZBox;
-    private Button transformApplyButton;
-    private EditBox moduleSearchBox;
-    private EditBox moduleTagBox;
-    private EditBox moduleExportIdBox;
-    private Button moduleKindButton;
-    private Button moduleRotateButton;
-    private Button moduleZoomInButton;
-    private Button moduleZoomOutButton;
-    private Button moduleBoundsButton;
-    private Button moduleConnectorsButton;
-    private Button moduleAirButton;
-    private Button moduleExportButton;
+    private LayoutRect topBar;
+    private LayoutRect leftBar;
+    private LayoutRect viewport;
+    private LayoutRect rightPanel;
+    private LayoutRect bottomBar;
+    private LayoutRect parameterViewport;
+    private LayoutRect moduleListViewport;
+    private LayoutRect modulePreviewPanel;
+    private LayoutRect messageLogRect;
+    private EditorButton previewButton;
+    private EditorButton regenerateButton;
+    private EditorButton bakeButton;
+    private EditorButton undoButton;
+    private EditorButton redoButton;
+    private EditorButton reloadButton;
+    private EditorButton exitButton;
+    private EditorButton moduleKindButton;
+    private EditorButton moduleRotateButton;
+    private EditorButton moduleZoomOutButton;
+    private EditorButton moduleZoomInButton;
+    private EditorButton moduleBoundsButton;
+    private EditorButton moduleConnectorsButton;
+    private EditorButton moduleAirButton;
+    private EditorButton moduleExportButton;
+    private EditorButton focusButton;
+    private EditorButton deleteButton;
+    private EditorButton clearPreviewButton;
+    private EditorButton transformApplyButton;
 
-    private int topBarX;
-    private int topBarY;
-    private int leftBarX;
-    private int leftBarY;
-    private int rightPanelX;
-    private int rightPanelY;
-    private int bottomBarX;
-    private int bottomBarY;
-    private int viewportX;
-    private int viewportY;
-    private int viewportWidth;
-    private int viewportHeight;
-    private int rightInnerX;
-    private int inspectorContentTop;
-    private int inspectorContentBottom;
-    private int parameterViewportTop;
-    private int parameterViewportBottom;
+    private EditorField focusedField;
+    private EditorField transformXField;
+    private EditorField transformYField;
+    private EditorField transformZField;
+    private EditorField moduleExportField;
+
     private int parameterScroll;
     private int maxParameterScroll;
-    private int moduleListTop;
-    private int moduleListBottom;
     private int moduleListScroll;
     private int maxModuleListScroll;
     private int logScroll;
     private int maxLogScroll;
+
+    private boolean showBakeConfirm;
+    private String uiSignature = "";
 
     public PcgEditorScreen() {
         super(Component.literal("PCG Editor"));
@@ -121,17 +124,10 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     protected void init() {
-        clearWidgets();
-        parameterBoxes.clear();
-        parameterKeys.clear();
         session.open();
         session.ensureDefaults();
         session.syncSelectionDefaults();
-        initLayout();
-        initTopToolbar();
-        initLeftToolbar();
-        rebuildInspectorWidgets();
-        updateActionStates();
+        rebuildUi();
     }
 
     @Override
@@ -139,356 +135,59 @@ public final class PcgEditorScreen extends Screen {
         session.enterCameraMode(Minecraft.getInstance());
     }
 
-    private void initLayout() {
-        topBarX = OUTER_PAD;
-        topBarY = OUTER_PAD;
-        leftBarX = OUTER_PAD;
-        leftBarY = topBarY + TOP_BAR_HEIGHT + GAP;
-        rightPanelX = this.width - RIGHT_PANEL_WIDTH - OUTER_PAD;
-        rightPanelY = topBarY + TOP_BAR_HEIGHT + GAP;
-        bottomBarX = OUTER_PAD;
-        bottomBarY = this.height - BOTTOM_BAR_HEIGHT - OUTER_PAD;
-        viewportX = leftBarX + LEFT_BAR_WIDTH + GAP;
-        viewportY = topBarY + TOP_BAR_HEIGHT + GAP;
-        viewportWidth = rightPanelX - GAP - viewportX;
-        viewportHeight = bottomBarY - GAP - viewportY;
-        rightInnerX = rightPanelX + INSET;
-        inspectorContentTop = rightPanelY + 34;
-        inspectorContentBottom = bottomBarY - GAP;
-        parameterViewportTop = 0;
-        parameterViewportBottom = 0;
-        moduleListTop = 0;
-        moduleListBottom = 0;
-    }
-
-    private void initTopToolbar() {
-        int x = topBarX + INSET;
-        int y = topBarY + 12;
-        int smallWidth = 86;
-        int mediumWidth = 152;
-        int actionWidth = 92;
-
-        x += 246;
-        addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePack(-1))
-                .bounds(x, y, 18, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePack(1))
-                .bounds(x + mediumWidth - 18, y, 18, BUTTON_HEIGHT).build());
-
-        x += mediumWidth + GAP;
-        addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePreset(-1))
-                .bounds(x, y, 18, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePreset(1))
-                .bounds(x + mediumWidth - 18, y, 18, BUTTON_HEIGHT).build());
-
-        x += mediumWidth + GAP + 6;
-        previewButton = addRenderableWidget(Button.builder(Component.literal("Preview"), button -> generatePreview(false))
-                .bounds(x, y, actionWidth, BUTTON_HEIGHT).build());
-        regenerateButton = addRenderableWidget(Button.builder(Component.literal("Regenerate"), button -> generatePreview(true))
-                .bounds(x + actionWidth + GAP, y, actionWidth + 12, BUTTON_HEIGHT).build());
-        bakeButton = addRenderableWidget(Button.builder(Component.literal("Bake"), button -> requestBake())
-                .bounds(x + (actionWidth + GAP) * 2 + 12, y, smallWidth - 2, BUTTON_HEIGHT).build());
-        undoButton = addRenderableWidget(Button.builder(Component.literal("Undo"), button -> runAction("blockwright undo", PcgEditorLogEntry.Severity.INFO, "Undo requested."))
-                .bounds(x + (actionWidth + GAP) * 2 + smallWidth + GAP + 10, y, smallWidth - 4, BUTTON_HEIGHT).build());
-        redoButton = addRenderableWidget(Button.builder(Component.literal("Redo"), button -> session.log(PcgEditorLogEntry.Severity.DEBUG, "Redo is not implemented in this MVP."))
-                .bounds(x + (actionWidth + GAP) * 2 + (smallWidth + GAP) * 2 + 6, y, smallWidth - 4, BUTTON_HEIGHT).build());
-        reloadButton = addRenderableWidget(Button.builder(Component.literal("Reload"), button -> reloadPacks())
-                .bounds(x + (actionWidth + GAP) * 2 + (smallWidth + GAP) * 3 + 2, y, smallWidth, BUTTON_HEIGHT).build());
-        exitButton = addRenderableWidget(Button.builder(Component.literal("Exit"), button -> onClose())
-                .bounds(x + (actionWidth + GAP) * 2 + (smallWidth + GAP) * 4 + 2, y, smallWidth - 10, BUTTON_HEIGHT).build());
-    }
-
-    private void initLeftToolbar() {
-        int x = leftBarX + 8;
-        int y = leftBarY + 8;
-        for (PcgEditorTool tool : PcgEditorTool.values()) {
-            boolean disabled = tool == PcgEditorTool.PAINT_MASK;
-            Button button = addRenderableWidget(Button.builder(Component.literal(tool.getTitle()), ignored -> switchTool(tool))
-                    .bounds(x, y, LEFT_BAR_WIDTH - 16, TOOL_BUTTON_HEIGHT)
-                    .build());
-            button.active = !disabled;
-            y += TOOL_BUTTON_HEIGHT + 8;
-        }
-    }
-
-    private void rebuildInspectorWidgets() {
-        clearDynamicWidgets();
-        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
-            initModuleLibraryWidgets();
-            return;
-        }
-
-        PresetDefinition preset = session.getSelectedPreset();
-        initTransformWidgets(computeInspectorContentTop());
-        if (preset == null) {
-            return;
-        }
-        int contentY = computeInspectorContentTop();
-        parameterViewportTop = contentY + 134;
-        parameterViewportBottom = getModulePreviewPanelY() - 132;
-        int labelWidth = 102;
-        int fieldX = rightInnerX + labelWidth;
-        int fieldWidth = RIGHT_PANEL_WIDTH - INSET * 2 - labelWidth - 8;
-        for (Map.Entry<String, PresetParameterDefinition> entry : preset.parameters.entrySet()) {
-            if (!entry.getValue().exposed) {
-                continue;
-            }
-            parameterKeys.add(entry.getKey());
-            EditBox box = new EditBox(this.font, fieldX, parameterViewportTop, fieldWidth, FIELD_HEIGHT, Component.literal(entry.getKey()));
-            box.setValue(entry.getValue().defaultValue == null ? "" : entry.getValue().defaultValue.getAsString());
-            box.setBordered(true);
-            box.setTextColor(TEXT_BRIGHT);
-            box.setResponder(value -> {
-                session.markDirty("Parameter changed: " + entry.getKey());
-                updateActionStates();
-            });
-            addRenderableWidget(box);
-            parameterBoxes.add(box);
-        }
-        layoutParameterFields();
-    }
-
-    private void clearDynamicWidgets() {
-        if (transformXBox != null) {
-            removeWidget(transformXBox);
-            transformXBox = null;
-        }
-        if (transformYBox != null) {
-            removeWidget(transformYBox);
-            transformYBox = null;
-        }
-        if (transformZBox != null) {
-            removeWidget(transformZBox);
-            transformZBox = null;
-        }
-        if (transformApplyButton != null) {
-            removeWidget(transformApplyButton);
-            transformApplyButton = null;
-        }
-        if (moduleSearchBox != null) {
-            removeWidget(moduleSearchBox);
-            moduleSearchBox = null;
-        }
-        if (moduleTagBox != null) {
-            removeWidget(moduleTagBox);
-            moduleTagBox = null;
-        }
-        if (moduleExportIdBox != null) {
-            removeWidget(moduleExportIdBox);
-            moduleExportIdBox = null;
-        }
-        if (moduleKindButton != null) {
-            removeWidget(moduleKindButton);
-            moduleKindButton = null;
-        }
-        if (moduleRotateButton != null) {
-            removeWidget(moduleRotateButton);
-            moduleRotateButton = null;
-        }
-        if (moduleZoomInButton != null) {
-            removeWidget(moduleZoomInButton);
-            moduleZoomInButton = null;
-        }
-        if (moduleZoomOutButton != null) {
-            removeWidget(moduleZoomOutButton);
-            moduleZoomOutButton = null;
-        }
-        if (moduleBoundsButton != null) {
-            removeWidget(moduleBoundsButton);
-            moduleBoundsButton = null;
-        }
-        if (moduleConnectorsButton != null) {
-            removeWidget(moduleConnectorsButton);
-            moduleConnectorsButton = null;
-        }
-        if (moduleAirButton != null) {
-            removeWidget(moduleAirButton);
-            moduleAirButton = null;
-        }
-        if (moduleExportButton != null) {
-            removeWidget(moduleExportButton);
-            moduleExportButton = null;
-        }
-        for (EditBox box : parameterBoxes) {
-            removeWidget(box);
-        }
-        parameterBoxes.clear();
-        parameterKeys.clear();
-    }
-
-    private void initModuleLibraryWidgets() {
-        int contentY = computeInspectorContentTop();
-        moduleSearchBox = new EditBox(this.font, rightInnerX, contentY + 18, RIGHT_PANEL_WIDTH - INSET * 2, FIELD_HEIGHT, Component.literal("Search"));
-        moduleSearchBox.setValue(session.getModuleSearchQuery());
-        moduleSearchBox.setBordered(true);
-        moduleSearchBox.setTextColor(TEXT_BRIGHT);
-        moduleSearchBox.setResponder(value -> session.setModuleSearchQuery(value));
-        addRenderableWidget(moduleSearchBox);
-
-        moduleTagBox = new EditBox(this.font, rightInnerX, contentY + 44, RIGHT_PANEL_WIDTH - INSET * 2, FIELD_HEIGHT, Component.literal("Tag filter"));
-        moduleTagBox.setValue(session.getModuleTagQuery());
-        moduleTagBox.setBordered(true);
-        moduleTagBox.setTextColor(TEXT_BRIGHT);
-        moduleTagBox.setResponder(value -> session.setModuleTagQuery(value));
-        addRenderableWidget(moduleTagBox);
-
-        moduleKindButton = addRenderableWidget(Button.builder(Component.literal(moduleKindLabel()), button -> {
-                    session.cycleModuleKindFilter();
-                    button.setMessage(Component.literal(moduleKindLabel()));
-                })
-                .bounds(rightInnerX, contentY + 68, RIGHT_PANEL_WIDTH - INSET * 2, BUTTON_HEIGHT)
-                .build());
-
-        moduleExportIdBox = new EditBox(this.font, rightInnerX, contentY + 95, RIGHT_PANEL_WIDTH - INSET * 2, FIELD_HEIGHT, Component.literal("Export module id"));
-        moduleExportIdBox.setValue(session.getExportModuleId());
-        moduleExportIdBox.setBordered(true);
-        moduleExportIdBox.setTextColor(TEXT_BRIGHT);
-        moduleExportIdBox.setResponder(session::setExportModuleId);
-        addRenderableWidget(moduleExportIdBox);
-
-        moduleExportButton = addRenderableWidget(Button.builder(Component.literal("Export Region"), button -> exportRegionAsModule())
-                .bounds(rightInnerX, contentY + 119, RIGHT_PANEL_WIDTH - INSET * 2, BUTTON_HEIGHT)
-                .build());
-
-        int previewPanelX = getModulePreviewPanelX();
-        int previewPanelY = getModulePreviewPanelY();
-        int previewPanelWidth = getModulePreviewPanelWidth();
-        int buttonWidth = (previewPanelWidth - 24) / 3;
-        int controlTop = previewPanelY + 138;
-        moduleRotateButton = addRenderableWidget(Button.builder(Component.literal("Rotate"), button -> session.rotateModulePreview())
-                .bounds(previewPanelX + 10, controlTop, buttonWidth, BUTTON_HEIGHT)
-                .build());
-        moduleZoomOutButton = addRenderableWidget(Button.builder(Component.literal("Zoom-"), button -> session.zoomModulePreview(-25))
-                .bounds(previewPanelX + 12 + buttonWidth, controlTop, buttonWidth, BUTTON_HEIGHT)
-                .build());
-        moduleZoomInButton = addRenderableWidget(Button.builder(Component.literal("Zoom+"), button -> session.zoomModulePreview(25))
-                .bounds(previewPanelX + 14 + buttonWidth * 2, controlTop, buttonWidth, BUTTON_HEIGHT)
-                .build());
-        moduleBoundsButton = addRenderableWidget(Button.builder(Component.literal(toggleLabel("Bounds", session.isShowModuleBounds())),
-                        button -> {
-                            session.setShowModuleBounds(!session.isShowModuleBounds());
-                            button.setMessage(Component.literal(toggleLabel("Bounds", session.isShowModuleBounds())));
-                        })
-                .bounds(previewPanelX + 10, controlTop + BUTTON_HEIGHT + 6, buttonWidth, BUTTON_HEIGHT)
-                .build());
-        moduleConnectorsButton = addRenderableWidget(Button.builder(Component.literal(toggleLabel("Conn", session.isShowModuleConnectors())),
-                        button -> {
-                            session.setShowModuleConnectors(!session.isShowModuleConnectors());
-                            button.setMessage(Component.literal(toggleLabel("Conn", session.isShowModuleConnectors())));
-                        })
-                .bounds(previewPanelX + 12 + buttonWidth, controlTop + BUTTON_HEIGHT + 6, buttonWidth, BUTTON_HEIGHT)
-                .build());
-        moduleAirButton = addRenderableWidget(Button.builder(Component.literal(toggleLabel("Air", session.isShowModuleAir())),
-                        button -> {
-                            session.setShowModuleAir(!session.isShowModuleAir());
-                            button.setMessage(Component.literal(toggleLabel("Air", session.isShowModuleAir())));
-                        })
-                .bounds(previewPanelX + 14 + buttonWidth * 2, controlTop + BUTTON_HEIGHT + 6, buttonWidth, BUTTON_HEIGHT)
-                .build());
-
-        moduleListTop = contentY + 150;
-        moduleListBottom = getModulePreviewPanelY() - 132;
-    }
-
-    private void initTransformWidgets(int contentY) {
-        if (session.getSelection() != PcgEditorSelection.REGION && session.getSelection() != PcgEditorSelection.SPLINE_POINT) {
-            return;
-        }
-
-        BlockPos origin = session.getSelection() == PcgEditorSelection.REGION
-                ? ClientSelectionState.getRegionSelection().getMin()
-                : session.getSelectedSplinePoint();
-        if (origin == null) {
-            return;
-        }
-
-        int x = rightInnerX + 26;
-        int y = contentY + 44;
-        int width = 56;
-        transformXBox = createIntegerField(x, y, width, origin.getX());
-        transformYBox = createIntegerField(x + width + 8, y, width, origin.getY());
-        transformZBox = createIntegerField(x + (width + 8) * 2, y, width, origin.getZ());
-        transformApplyButton = addRenderableWidget(Button.builder(Component.literal("Apply"), button -> applyTransformEdit())
-                .bounds(rightInnerX + RIGHT_PANEL_WIDTH - INSET * 2 - 58, y, 58, BUTTON_HEIGHT)
-                .build());
-    }
-
-    private EditBox createIntegerField(int x, int y, int width, int value) {
-        EditBox box = new EditBox(this.font, x, y, width, FIELD_HEIGHT, Component.empty());
-        box.setValue(String.valueOf(value));
-        box.setBordered(true);
-        box.setTextColor(TEXT_BRIGHT);
-        addRenderableWidget(box);
-        return box;
-    }
-
-    private void refreshUi() {
-        if (this.minecraft != null) {
-            rebuildWidgets();
-        }
-    }
-
-    private int computeInspectorContentTop() {
-        return rightPanelY + 26;
-    }
-
-    private void layoutParameterFields() {
-        int viewportHeight = Math.max(40, parameterViewportBottom - parameterViewportTop);
-        int contentHeight = Math.max(0, parameterBoxes.size() * PARAMETER_ROW_HEIGHT);
-        maxParameterScroll = Math.max(0, contentHeight - viewportHeight);
-        parameterScroll = clamp(parameterScroll, 0, maxParameterScroll);
-
-        int labelWidth = 102;
-        int fieldX = rightInnerX + labelWidth;
-        int fieldWidth = RIGHT_PANEL_WIDTH - INSET * 2 - labelWidth - 8;
-        int baseY = parameterViewportTop - parameterScroll;
-        for (int i = 0; i < parameterBoxes.size(); i++) {
-            EditBox box = parameterBoxes.get(i);
-            int y = baseY + i * PARAMETER_ROW_HEIGHT + 2;
-            boolean visible = y + FIELD_HEIGHT >= parameterViewportTop && y <= parameterViewportBottom;
-            box.setX(fieldX);
-            box.setY(y);
-            box.setWidth(fieldWidth);
-            box.setVisible(visible);
-            box.active = visible;
-            if (!visible) {
-                box.setFocused(false);
-            }
-        }
-    }
-
     @Override
     public void tick() {
         session.syncSelectionDefaults();
-        updateActionStates();
+        String signature = buildUiSignature();
+        if (!signature.equals(uiSignature)) {
+            rebuildUi();
+        } else {
+            updateActionStates();
+            layoutParameterFields();
+            clampLogScroll();
+            refreshVisibleModules();
+        }
     }
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        drawViewportFrame(guiGraphics);
-        drawTopToolbar(guiGraphics);
-        drawLeftToolbar(guiGraphics);
-        drawRightInspector(guiGraphics);
+        guiGraphics.fill(0, 0, this.width, this.height, ROOT_BG);
+        drawTopBar(guiGraphics, mouseX, mouseY);
+        drawLeftBar(guiGraphics, mouseX, mouseY);
+        drawViewport(guiGraphics);
+        drawRightPanel(guiGraphics, mouseX, mouseY);
         drawBottomBar(guiGraphics);
-        drawViewportHints(guiGraphics);
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+        drawInteractiveElements(guiGraphics, mouseX, mouseY);
+        if (showBakeConfirm) {
+            drawBakeConfirm(guiGraphics, mouseX, mouseY);
+        }
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 1 && isInViewport(mouseX, mouseY)) {
+        if (showBakeConfirm) {
+            return handleConfirmClick(mouseX, mouseY, button);
+        }
+        if (button == 1 && viewport.contains(mouseX, mouseY)) {
             startNavigation();
             return true;
         }
-        boolean handled = super.mouseClicked(mouseX, mouseY, button);
-        if (handled) {
+        if (button != 0) {
+            return false;
+        }
+
+        if (handleButtonClick(mouseX, mouseY)) {
             return true;
         }
-        if (button == 0 && isInViewport(mouseX, mouseY) && !session.isNavigating()) {
-            return handleViewportClick();
+        if (handleFieldClick(mouseX, mouseY)) {
+            return true;
         }
-        if (button == 0 && session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && mouseX >= rightPanelX && mouseX <= rightPanelX + RIGHT_PANEL_WIDTH
-                && mouseY >= moduleListTop && mouseY <= moduleListBottom) {
+        clearFocus();
+        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(mouseX, mouseY)) {
             return selectModuleFromList(mouseY);
+        }
+        if (viewport.contains(mouseX, mouseY) && !session.isNavigating()) {
+            return handleViewportClick();
         }
         return false;
     }
@@ -499,84 +198,112 @@ public final class PcgEditorScreen extends Screen {
             stopNavigation();
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return false;
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        if (button == 1 && session.isNavigating()) {
-            return true;
-        }
-        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+        return button == 1 && session.isNavigating();
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY
-                && mouseX >= rightPanelX && mouseX <= rightPanelX + RIGHT_PANEL_WIDTH
-                && mouseY >= moduleListTop && mouseY <= moduleListBottom) {
+        if (showBakeConfirm) {
+            return true;
+        }
+        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(mouseX, mouseY)) {
             moduleListScroll = clamp(moduleListScroll - (int) Math.signum(delta), 0, maxModuleListScroll);
             return true;
         }
-        if (parameterBoxes.size() > 0
-                && mouseX >= rightPanelX && mouseX <= rightPanelX + RIGHT_PANEL_WIDTH
-                && mouseY >= parameterViewportTop && mouseY <= parameterViewportBottom) {
+        if (parameterViewport != null && parameterViewport.contains(mouseX, mouseY) && !parameterFields.isEmpty()) {
             parameterScroll = clamp(parameterScroll - (int) (delta * 18.0D), 0, maxParameterScroll);
             layoutParameterFields();
             return true;
         }
-        if (mouseX >= bottomBarX && mouseX <= bottomBarX + this.width - OUTER_PAD * 2
-                && mouseY >= bottomBarY && mouseY <= bottomBarY + BOTTOM_BAR_HEIGHT) {
+        if (messageLogRect != null && messageLogRect.contains(mouseX, mouseY)) {
             logScroll = clamp(logScroll - (int) Math.signum(delta), 0, maxLogScroll);
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, delta);
+        return false;
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) {
+        if (showBakeConfirm) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                showBakeConfirm = false;
+                session.log(PcgEditorLogEntry.Severity.INFO, "Bake cancelled.");
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                confirmBake();
+                return true;
+            }
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             if (session.isNavigating()) {
                 stopNavigation();
+            } else if (focusedField != null) {
+                clearFocus();
             } else {
                 onClose();
             }
             return true;
         }
-        if (keyCode == 80) {
+
+        if (focusedField != null && focusedField.keyPressed(keyCode, modifiers)) {
+            return true;
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_P) {
             generatePreview(false);
             return true;
         }
-        if (keyCode == 82) {
+        if (keyCode == GLFW.GLFW_KEY_R) {
             generatePreview(true);
             return true;
         }
-        if (keyCode == 66) {
+        if (keyCode == GLFW.GLFW_KEY_B) {
             requestBake();
             return true;
         }
-        if (keyCode == 257 && session.getActiveTool() == PcgEditorTool.SPLINE) {
-            session.setSelection(PcgEditorSelection.SPLINE);
-            session.log(PcgEditorLogEntry.Severity.INFO, "Spline input confirmed.");
-            return true;
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+            if (session.getActiveTool() == PcgEditorTool.SPLINE) {
+                session.setSelection(PcgEditorSelection.SPLINE);
+                session.log(PcgEditorLogEntry.Severity.INFO, "Spline input confirmed.");
+                return true;
+            }
+            if (transformApplyButton != null && isTransformSelection()) {
+                applyTransformEdit();
+                return true;
+            }
         }
-        if (keyCode == 70) {
+        if (keyCode == GLFW.GLFW_KEY_F) {
             focusSelection();
             return true;
         }
-        if (keyCode == 261) {
+        if (keyCode == GLFW.GLFW_KEY_DELETE) {
             deleteSelection();
             return true;
         }
-        if (hasControlDown() && keyCode == 90) {
+        if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Z) {
             runAction("blockwright undo", PcgEditorLogEntry.Severity.INFO, "Undo requested.");
             return true;
         }
-        if (hasControlDown() && keyCode == 89) {
+        if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Y) {
             session.log(PcgEditorLogEntry.Severity.DEBUG, "Redo is not implemented in this MVP.");
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return false;
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (showBakeConfirm) {
+            return true;
+        }
+        return focusedField != null && focusedField.charTyped(codePoint);
     }
 
     @Override
@@ -604,337 +331,758 @@ public final class PcgEditorScreen extends Screen {
         return false;
     }
 
-    private void drawTopToolbar(GuiGraphics guiGraphics) {
-        drawPanel(guiGraphics, topBarX, topBarY, this.width - OUTER_PAD * 2, TOP_BAR_HEIGHT);
-        guiGraphics.fill(topBarX + 8, topBarY + 8, topBarX + 34, topBarY + TOP_BAR_HEIGHT - 8, PANEL_ACCENT);
-        guiGraphics.drawString(this.font, "BW", topBarX + 14, topBarY + 18, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "PCG EDITOR", topBarX + 44, topBarY + 18, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "MODE:", topBarX + 152, topBarY + 18, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Build", topBarX + 190, topBarY + 18, TEXT_GREEN);
-        guiGraphics.drawString(this.font, "PACK:", topBarX + 252, topBarY + 18, TEXT_MUTED);
-        guiGraphics.drawString(this.font,
-                trimToWidth(session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, 120),
-                topBarX + 288, topBarY + 18, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "PRESET:", topBarX + 410, topBarY + 18, TEXT_MUTED);
-        guiGraphics.drawString(this.font,
-                trimToWidth(session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, 138),
-                topBarX + 458, topBarY + 18, TEXT_BRIGHT);
-    }
+    private void rebuildUi() {
+        String focusedId = focusedField == null ? null : focusedField.id;
+        buttons.clear();
+        fields.clear();
+        parameterFields.clear();
+        previewButton = null;
+        regenerateButton = null;
+        bakeButton = null;
+        undoButton = null;
+        redoButton = null;
+        reloadButton = null;
+        exitButton = null;
+        moduleKindButton = null;
+        moduleRotateButton = null;
+        moduleZoomOutButton = null;
+        moduleZoomInButton = null;
+        moduleBoundsButton = null;
+        moduleConnectorsButton = null;
+        moduleAirButton = null;
+        moduleExportButton = null;
+        focusButton = null;
+        deleteButton = null;
+        clearPreviewButton = null;
+        transformApplyButton = null;
+        transformXField = null;
+        transformYField = null;
+        transformZField = null;
+        moduleExportField = null;
+        focusedField = null;
 
-    private void drawViewportFrame(GuiGraphics guiGraphics) {
-        guiGraphics.fill(viewportX - 1, viewportY - 1, viewportX + viewportWidth + 1, viewportY, PANEL_BORDER);
-        guiGraphics.fill(viewportX - 1, viewportY + viewportHeight, viewportX + viewportWidth + 1, viewportY + viewportHeight + 1, PANEL_BORDER);
-        guiGraphics.fill(viewportX - 1, viewportY, viewportX, viewportY + viewportHeight, PANEL_BORDER);
-        guiGraphics.fill(viewportX + viewportWidth, viewportY, viewportX + viewportWidth + 1, viewportY + viewportHeight, PANEL_BORDER);
-    }
-
-    private void drawLeftToolbar(GuiGraphics guiGraphics) {
-        drawPanel(guiGraphics, leftBarX, leftBarY, LEFT_BAR_WIDTH, viewportHeight);
-        int y = leftBarY + 8;
-        for (PcgEditorTool tool : PcgEditorTool.values()) {
-            if (tool == session.getActiveTool()) {
-                guiGraphics.fill(leftBarX + 4, y, leftBarX + 8, y + TOOL_BUTTON_HEIGHT, TEXT_BLUE);
-            } else if (tool == PcgEditorTool.PAINT_MASK) {
-                guiGraphics.fill(leftBarX + 4, y, leftBarX + 8, y + TOOL_BUTTON_HEIGHT, TOOL_DISABLED);
-            }
-            y += TOOL_BUTTON_HEIGHT + 8;
-        }
-    }
-
-    private void drawRightInspector(GuiGraphics guiGraphics) {
-        drawPanel(guiGraphics, rightPanelX, rightPanelY, RIGHT_PANEL_WIDTH, inspectorContentBottom - rightPanelY);
-        guiGraphics.drawString(this.font, "DETAILS", rightInnerX, rightPanelY + 10, TEXT_BRIGHT);
-
+        layoutRoot();
+        buildTopToolbar();
+        buildToolPalette();
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
-            drawModuleLibraryPanel(guiGraphics);
+            buildModuleLibraryControls();
         } else {
-            drawInspectorSections(guiGraphics);
+            buildInspectorControls();
+        }
+        buildModulePreviewControls();
+        restoreFocus(focusedId);
+        updateActionStates();
+        refreshVisibleModules();
+        layoutParameterFields();
+        clampLogScroll();
+        uiSignature = buildUiSignature();
+    }
+
+    private void layoutRoot() {
+        int rootWidth = this.width - OUTER_PAD * 2;
+        topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, TOP_BAR_HEIGHT);
+        bottomBar = new LayoutRect(OUTER_PAD, this.height - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
+        int actualLeftWidth = Math.max(112, Math.min(LEFT_BAR_WIDTH, this.width / 7));
+        int maxRightWidth = Math.max(340, this.width / 3);
+        int actualRightWidth = Math.max(356, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
+        int maxAllowedRight = Math.max(320, rootWidth - actualLeftWidth - 360 - GAP * 2);
+        actualRightWidth = Math.min(actualRightWidth, maxAllowedRight);
+        leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
+        rightPanel = new LayoutRect(this.width - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
+                actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
+        viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
+                rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
+        int previewHeight = Math.max(MIN_PREVIEW_HEIGHT, Math.min(310, rightPanel.height / 3));
+        modulePreviewPanel = new LayoutRect(rightPanel.x + INSET, rightPanel.bottom() - INSET - previewHeight,
+                rightPanel.width - INSET * 2, previewHeight);
+        parameterViewport = null;
+        moduleListViewport = null;
+        messageLogRect = null;
+    }
+
+    private void buildTopToolbar() {
+        int y = topBar.y + 13;
+        int actionGap = 6;
+        int exitWidth = 76;
+        int smallWidth = 82;
+        int previewWidth = 104;
+        int regenerateWidth = 120;
+        int actionsWidth = previewWidth + regenerateWidth + exitWidth + smallWidth * 4 + actionGap * 6;
+        int actionStart = topBar.right() - 12 - actionsWidth;
+        int x = actionStart;
+        previewButton = addButton("preview", x, y, previewWidth, TOP_BUTTON_HEIGHT, "Preview", false, false, () -> generatePreview(false));
+        regenerateButton = addButton("regenerate", x + previewWidth + actionGap, y, regenerateWidth, TOP_BUTTON_HEIGHT, "Regenerate", false, false, () -> generatePreview(true));
+        bakeButton = addButton("bake", x + previewWidth + regenerateWidth + actionGap * 2, y, smallWidth, TOP_BUTTON_HEIGHT, "Bake", false, false, this::requestBake);
+        undoButton = addButton("undo", x + previewWidth + regenerateWidth + smallWidth + actionGap * 3, y, smallWidth, TOP_BUTTON_HEIGHT, "Undo", false, false,
+                () -> runAction("blockwright undo", PcgEditorLogEntry.Severity.INFO, "Undo requested."));
+        redoButton = addButton("redo", x + previewWidth + regenerateWidth + smallWidth * 2 + actionGap * 4, y, smallWidth, TOP_BUTTON_HEIGHT, "Redo", false, false,
+                () -> session.log(PcgEditorLogEntry.Severity.DEBUG, "Redo is not implemented in this MVP."));
+        reloadButton = addButton("reload", x + previewWidth + regenerateWidth + smallWidth * 3 + actionGap * 5, y, smallWidth, TOP_BUTTON_HEIGHT, "Reload", false, false, this::reloadPacks);
+        exitButton = addButton("exit", x + previewWidth + regenerateWidth + smallWidth * 4 + actionGap * 6, y, exitWidth, TOP_BUTTON_HEIGHT, "Exit", false, false, this::onClose);
+
+        int clusterWidth = 178;
+        int presetX = actionStart - clusterWidth - 16;
+        int packX = presetX - clusterWidth - 12;
+        addButton("pack_prev", packX, y, 20, TOP_BUTTON_HEIGHT, "<", false, false, () -> cyclePack(-1));
+        addButton("pack_next", packX + clusterWidth - 20, y, 20, TOP_BUTTON_HEIGHT, ">", false, false, () -> cyclePack(1));
+        addButton("preset_prev", presetX, y, 20, TOP_BUTTON_HEIGHT, "<", false, false, () -> cyclePreset(-1));
+        addButton("preset_next", presetX + clusterWidth - 20, y, 20, TOP_BUTTON_HEIGHT, ">", false, false, () -> cyclePreset(1));
+    }
+
+    private void buildToolPalette() {
+        int buttonWidth = leftBar.width - 16;
+        int x = leftBar.x + 8;
+        int y = leftBar.y + 8;
+        int toolHeight = computeToolButtonHeight();
+        for (PcgEditorTool tool : PcgEditorTool.values()) {
+            boolean disabled = tool == PcgEditorTool.PAINT_MASK;
+            boolean selected = tool == session.getActiveTool();
+            addButton("tool_" + tool.name().toLowerCase(Locale.ROOT), x, y, buttonWidth, toolHeight,
+                    toolLabel(tool), selected, disabled, () -> switchTool(tool));
+            y += toolHeight + 8;
+        }
+    }
+
+    private void buildInspectorControls() {
+        int innerX = rightPanel.x + INSET;
+        int innerWidth = rightPanel.width - INSET * 2;
+        int y = rightPanel.y + 44;
+
+        y += 58;
+        if (isTransformSelection()) {
+            int fieldWidth = 62;
+            transformXField = addField("transform_x", innerX + 42, y - 18, fieldWidth, FIELD_HEIGHT,
+                    String.valueOf(currentTransformOrigin().getX()), true, text -> {
+            });
+            transformYField = addField("transform_y", innerX + 42 + fieldWidth + 10, y - 18, fieldWidth, FIELD_HEIGHT,
+                    String.valueOf(currentTransformOrigin().getY()), true, text -> {
+            });
+            transformZField = addField("transform_z", innerX + 42 + (fieldWidth + 10) * 2, y - 18, fieldWidth, FIELD_HEIGHT,
+                    String.valueOf(currentTransformOrigin().getZ()), true, text -> {
+            });
+            transformApplyButton = addButton("transform_apply", innerX + innerWidth - 78, y - 18, 78, TOP_BUTTON_HEIGHT,
+                    "Apply", false, false, this::applyTransformEdit);
         }
 
-        drawModulePreviewPanel(guiGraphics);
-    }
-
-    private void drawInspectorSections(GuiGraphics guiGraphics) {
-        int y = computeInspectorContentTop();
-        y = drawInspectorHeader(guiGraphics, y, "OBJECT");
-        guiGraphics.drawString(this.font, "Name", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, session.getSelectionLabel(), rightInnerX + 86, y, TEXT_BRIGHT);
-        y += 12;
-        guiGraphics.drawString(this.font, "Type", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, describeSelectionType(), rightInnerX + 86, y, TEXT_BRIGHT);
-
-        y += 20;
-        y = drawInspectorHeader(guiGraphics, y, "TRANSFORM");
-        drawTransformSection(guiGraphics, y);
-        y += 46;
-
-        y = drawInspectorHeader(guiGraphics, y, "INPUT");
-        drawInputSection(guiGraphics, y);
-        y += 34;
-
-        y = drawInspectorHeader(guiGraphics, y, "PRESET");
-        drawPresetSection(guiGraphics, y);
-        y += 34;
-
-        y = drawInspectorHeader(guiGraphics, y, "PARAMETERS");
-        drawParameterLabels(guiGraphics, y + 2);
-
-        int validationY = getModulePreviewPanelY() - 116;
-        validationY = drawInspectorHeader(guiGraphics, validationY, "VALIDATION");
-        drawValidationSection(guiGraphics, validationY);
-
-        int actionsY = getModulePreviewPanelY() - 56;
-        actionsY = drawInspectorHeader(guiGraphics, actionsY, "ACTIONS");
-        drawActionHints(guiGraphics, actionsY);
-    }
-
-    private void drawModuleLibraryPanel(GuiGraphics guiGraphics) {
-        int y = computeInspectorContentTop();
-        y = drawInspectorHeader(guiGraphics, y, "MODULE LIBRARY");
-        LoadedPack pack = session.getSelectedPack();
-        guiGraphics.drawString(this.font, "Pack", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, trimToWidth(pack == null ? "<none>" : pack.getMetadata().id, RIGHT_PANEL_WIDTH - INSET * 2 - 54),
-                rightInnerX + 54, y, TEXT_BRIGHT);
-        y += 66;
-
-        List<ModuleDefinition> modules = getFilteredModules(pack);
-        ModuleDefinition selectedModule = session.getSelectedModule();
-        updateModuleScroll(modules.size());
-        guiGraphics.drawString(this.font, "Modules", rightInnerX, y, TEXT_BRIGHT);
-        int rowY = moduleListTop;
-        int visibleRows = Math.max(1, (moduleListBottom - moduleListTop) / MODULE_ROW_HEIGHT);
-        int end = Math.min(modules.size(), moduleListScroll + visibleRows);
-        for (int i = moduleListScroll; i < end; i++) {
-            ModuleDefinition module = modules.get(i);
-            boolean selected = selectedModule != null && module.id.equals(selectedModule.id);
-            if (selected) {
-                guiGraphics.fill(rightPanelX + 1, rowY - 1, rightPanelX + RIGHT_PANEL_WIDTH - 1, rowY + MODULE_ROW_HEIGHT - 2, 0x663A4F5E);
+        y += 108;
+        PresetDefinition preset = session.getSelectedPreset();
+        int reservedBottom = 148;
+        int availableHeight = Math.max(88, modulePreviewPanel.y - 12 - reservedBottom - y);
+        parameterViewport = new LayoutRect(innerX, y, innerWidth, availableHeight);
+        if (preset != null) {
+            int labelWidth = Math.min(144, innerWidth / 3);
+            int fieldX = innerX + labelWidth + 8;
+            int fieldWidth = innerWidth - labelWidth - 8;
+            int rowIndex = 0;
+            for (Map.Entry<String, PresetParameterDefinition> entry : preset.parameters.entrySet()) {
+                if (!entry.getValue().exposed) {
+                    continue;
+                }
+                String value = parameterOverrides.containsKey(entry.getKey())
+                        ? parameterOverrides.get(entry.getKey())
+                        : entry.getValue().defaultValue == null ? "" : entry.getValue().defaultValue.getAsString();
+                parameterOverrides.putIfAbsent(entry.getKey(), value);
+                EditorField field = addField("param_" + entry.getKey(), fieldX, 0, fieldWidth, FIELD_HEIGHT, value, false, text -> {
+                    parameterOverrides.put(entry.getKey(), text);
+                    session.markDirty("Parameter changed: " + entry.getKey());
+                });
+                parameterFields.add(new ParameterField(entry.getKey(), rowIndex, field));
+                rowIndex++;
             }
-            guiGraphics.drawString(this.font, trimToWidth(module.id, RIGHT_PANEL_WIDTH - INSET * 2), rightInnerX, rowY, selected ? TEXT_BRIGHT : TEXT_MUTED);
-            guiGraphics.drawString(this.font, trimToWidth(safe(module.moduleKind), RIGHT_PANEL_WIDTH - INSET * 2), rightInnerX, rowY + 10, selected ? TEXT_BLUE : TEXT_MUTED);
-            rowY += MODULE_ROW_HEIGHT;
         }
 
-        int detailY = moduleListBottom + 10;
-        detailY = drawInspectorHeader(guiGraphics, detailY, "MODULE DETAIL");
-        drawModuleDetails(guiGraphics, detailY, selectedModule);
+        int actionsTop = modulePreviewPanel.y - 54;
+        focusButton = addButton("focus", innerX, actionsTop, 92, TOP_BUTTON_HEIGHT, "Focus", false, false, this::focusSelection);
+        deleteButton = addButton("delete", innerX + 98, actionsTop, 92, TOP_BUTTON_HEIGHT, "Delete", false, true, this::deleteSelection);
+        clearPreviewButton = addButton("clear_preview", innerX + 196, actionsTop, 108, TOP_BUTTON_HEIGHT, "Clear Preview", false, false,
+                () -> runAction("blockwright preview clear", PcgEditorLogEntry.Severity.INFO, "Cleared preview."));
     }
 
-    private void drawModulePreviewPanel(GuiGraphics guiGraphics) {
-        int panelX = getModulePreviewPanelX();
-        int panelY = getModulePreviewPanelY();
-        int panelWidth = getModulePreviewPanelWidth();
-        int panelHeight = getModulePreviewPanelHeight();
-        drawPanel(guiGraphics, panelX, panelY, panelWidth, panelHeight);
-        guiGraphics.drawString(this.font, "MODULE PREVIEW", panelX + INSET, panelY + 10, TEXT_BRIGHT);
+    private void buildModuleLibraryControls() {
+        int innerX = rightPanel.x + INSET;
+        int innerWidth = rightPanel.width - INSET * 2;
+        int y = rightPanel.y + 44;
+        addField("module_search", innerX, y + 18, innerWidth, FIELD_HEIGHT,
+                session.getModuleSearchQuery(), false, value -> {
+                    session.setModuleSearchQuery(value);
+                    refreshVisibleModules();
+                });
+        addField("module_tag", innerX, y + 46, innerWidth, FIELD_HEIGHT,
+                session.getModuleTagQuery(), false, value -> {
+                    session.setModuleTagQuery(value);
+                    refreshVisibleModules();
+                });
+        moduleKindButton = addButton("module_kind", innerX, y + 74, innerWidth, TOP_BUTTON_HEIGHT, moduleKindLabel(),
+                false, false, () -> {
+                    session.cycleModuleKindFilter();
+                    refreshVisibleModules();
+                    rebuildUi();
+                });
+        moduleExportField = addField("module_export", innerX, y + 104, innerWidth, FIELD_HEIGHT,
+                session.getExportModuleId(), false, session::setExportModuleId);
+        moduleExportButton = addButton("module_export_button", innerX, y + 132, innerWidth, TOP_BUTTON_HEIGHT, "Export Region",
+                false, false, this::exportRegionAsModule);
+
+        int listTop = y + 172;
+        int listBottom = modulePreviewPanel.y - 14;
+        moduleListViewport = new LayoutRect(innerX, listTop, innerWidth, Math.max(96, listBottom - listTop));
+        refreshVisibleModules();
+    }
+
+    private void buildModulePreviewControls() {
+        int x = modulePreviewPanel.x + 10;
+        int width = modulePreviewPanel.width - 20;
+        int buttonY = modulePreviewPanel.bottom() - 58;
+        int buttonWidth = (width - 16) / 3;
+        moduleRotateButton = addButton("module_rotate", x, buttonY, buttonWidth, TOP_BUTTON_HEIGHT, "Rotate", false, false,
+                () -> {
+                    session.rotateModulePreview();
+                    rebuildUi();
+                });
+        moduleZoomOutButton = addButton("module_zoom_out", x + buttonWidth + 8, buttonY, buttonWidth, TOP_BUTTON_HEIGHT, "Zoom-", false, false,
+                () -> {
+                    session.zoomModulePreview(-25);
+                    rebuildUi();
+                });
+        moduleZoomInButton = addButton("module_zoom_in", x + (buttonWidth + 8) * 2, buttonY, buttonWidth, TOP_BUTTON_HEIGHT, "Zoom+", false, false,
+                () -> {
+                    session.zoomModulePreview(25);
+                    rebuildUi();
+                });
+        int toggleY = modulePreviewPanel.bottom() - 30;
+        moduleBoundsButton = addButton("module_bounds", x, toggleY, buttonWidth, TOP_BUTTON_HEIGHT, toggleLabel("Bounds", session.isShowModuleBounds()),
+                false, false, () -> {
+                    session.setShowModuleBounds(!session.isShowModuleBounds());
+                    rebuildUi();
+                });
+        moduleConnectorsButton = addButton("module_connectors", x + buttonWidth + 8, toggleY, buttonWidth, TOP_BUTTON_HEIGHT,
+                toggleLabel("Conn", session.isShowModuleConnectors()), false, false, () -> {
+                    session.setShowModuleConnectors(!session.isShowModuleConnectors());
+                    rebuildUi();
+                });
+        moduleAirButton = addButton("module_air", x + (buttonWidth + 8) * 2, toggleY, buttonWidth, TOP_BUTTON_HEIGHT, toggleLabel("Air", session.isShowModuleAir()),
+                false, false, () -> {
+                    session.setShowModuleAir(!session.isShowModuleAir());
+                    rebuildUi();
+                });
+    }
+
+    private void drawTopBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        drawPanel(guiGraphics, topBar, true);
+        guiGraphics.fill(topBar.x + 8, topBar.y + 8, topBar.x + 34, topBar.y + topBar.height - 8, PANEL_ACCENT);
+        guiGraphics.drawString(this.font, "BW", topBar.x + 15, topBar.y + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "PCG EDITOR", topBar.x + 46, topBar.y + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "MODE:", topBar.x + 174, topBar.y + 18, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Build", topBar.x + 218, topBar.y + 18, TEXT_GREEN);
+        int actionGap = 6;
+        int exitWidth = 76;
+        int smallWidth = 82;
+        int previewWidth = 104;
+        int regenerateWidth = 120;
+        int actionsWidth = previewWidth + regenerateWidth + exitWidth + smallWidth * 4 + actionGap * 6;
+        int actionStart = topBar.right() - 12 - actionsWidth;
+        int clusterWidth = 178;
+        int presetX = actionStart - clusterWidth - 16;
+        int packX = presetX - clusterWidth - 12;
+        guiGraphics.drawString(this.font, "PACK:", packX - 34, topBar.y + 18, TEXT_MUTED);
+        guiGraphics.drawString(this.font, trimToWidth(session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, clusterWidth - 52),
+                packX + 28, topBar.y + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "PRESET:", presetX - 46, topBar.y + 18, TEXT_MUTED);
+        guiGraphics.drawString(this.font, trimToWidth(session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, clusterWidth - 52),
+                presetX + 28, topBar.y + 18, TEXT_BRIGHT);
+    }
+
+    private void drawLeftBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        drawPanel(guiGraphics, leftBar, false);
+        int toolHeight = computeToolButtonHeight();
+        int buttonAreaBottom = leftBar.y + 8 + PcgEditorTool.values().length * toolHeight + (PcgEditorTool.values().length - 1) * 8;
+        int bottomStatsTop = Math.max(buttonAreaBottom + 8, leftBar.bottom() - 164);
+        guiGraphics.fill(leftBar.x + 8, bottomStatsTop, leftBar.right() - 8, leftBar.bottom() - 8, PANEL_HEADER);
+        guiGraphics.drawString(this.font, "POSITION", leftBar.x + 14, bottomStatsTop + 10, TEXT_BRIGHT);
+        List<String> positionLines = describePosition();
+        guiGraphics.drawString(this.font, trimToWidth(positionLines.get(0), leftBar.width - 28), leftBar.x + 14, bottomStatsTop + 28, TEXT_MUTED);
+        guiGraphics.drawString(this.font, trimToWidth(positionLines.get(1), leftBar.width - 28), leftBar.x + 14, bottomStatsTop + 42, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "SNAP", leftBar.x + 14, bottomStatsTop + 68, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, session.getSnapStep() + " blocks", leftBar.x + 14, bottomStatsTop + 84, TEXT_BLUE);
+        guiGraphics.drawString(this.font, "Selection", leftBar.x + 14, bottomStatsTop + 108, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, trimToWidth(session.getSelectionLabel(), leftBar.width - 28), leftBar.x + 14, bottomStatsTop + 124, TEXT_MUTED);
+    }
+
+    private void drawViewport(GuiGraphics guiGraphics) {
+        drawViewportFrame(guiGraphics);
+        guiGraphics.fill(viewport.x + 18, viewport.y + 18, viewport.x + 210, viewport.y + 80, 0xB1161C24);
+        guiGraphics.drawString(this.font, "Hold RMB to navigate,", viewport.x + 30, viewport.y + 30, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "WASD to fly,", viewport.x + 30, viewport.y + 44, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "LMB to edit.", viewport.x + 30, viewport.y + 58, TEXT_BRIGHT);
+
+        guiGraphics.fill(viewport.x + 18, viewport.bottom() - 100, viewport.x + 190, viewport.bottom() - 18, 0xB1161C24);
+        guiGraphics.drawString(this.font, "VIEW", viewport.x + 30, viewport.bottom() - 88, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Editor Overlay", viewport.x + 30, viewport.bottom() - 74, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "SNAP", viewport.x + 30, viewport.bottom() - 54, TEXT_MUTED);
+        guiGraphics.drawString(this.font, session.getSnapStep() + " blocks", viewport.x + 30, viewport.bottom() - 40, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Tool: " + session.getActiveTool().getTitle(), viewport.x + 30, viewport.bottom() - 22, TEXT_MUTED);
+
+        PcgEditorPreviewState previewState = session.getPreviewState();
+        if (previewState == PcgEditorPreviewState.DIRTY || previewState == PcgEditorPreviewState.ERROR) {
+            int badgeColor = previewState == PcgEditorPreviewState.ERROR ? 0xB03B161B : 0xB03B3015;
+            int textColor = previewState == PcgEditorPreviewState.ERROR ? TEXT_RED : TEXT_YELLOW;
+            String label = previewState == PcgEditorPreviewState.ERROR ? "Preview Error" : "Outdated Preview";
+            guiGraphics.fill(viewport.right() - 164, viewport.y + 18, viewport.right() - 18, viewport.y + 44, badgeColor);
+            guiGraphics.drawString(this.font, label, viewport.right() - 150, viewport.y + 27, textColor);
+        }
+    }
+
+    private void drawRightPanel(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        drawPanel(guiGraphics, rightPanel, false);
+        guiGraphics.drawString(this.font, "DETAILS", rightPanel.x + INSET, rightPanel.y + 10, TEXT_BRIGHT);
+        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
+            drawModuleLibrary(guiGraphics);
+        } else {
+            drawInspector(guiGraphics);
+        }
+        drawModulePreview(guiGraphics);
+    }
+
+    private void drawInspector(GuiGraphics guiGraphics) {
+        int innerX = rightPanel.x + INSET;
+        int innerWidth = rightPanel.width - INSET * 2;
+        int y = rightPanel.y + 32;
+
+        y = drawSectionHeader(guiGraphics, y, "OBJECT");
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Name", session.getSelectionLabel(), TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Type", describeSelectionType(), TEXT_BRIGHT);
+
+        y += 48;
+        y = drawSectionHeader(guiGraphics, y, "TRANSFORM");
+        drawTransformSection(guiGraphics, innerX, y);
+
+        y += 74;
+        y = drawSectionHeader(guiGraphics, y, "INPUT");
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Required", describePresetMode(session.getSelectedPreset()), TEXT_BRIGHT);
+        String currentInput = describeSelectionInput();
+        int inputColor = isInputCompatible(describePresetMode(session.getSelectedPreset())) ? TEXT_GREEN : TEXT_RED;
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Current", currentInput, inputColor);
+
+        y += 48;
+        y = drawSectionHeader(guiGraphics, y, "PRESET");
+        LoadedPack pack = session.getSelectedPack();
+        PresetDefinition preset = session.getSelectedPreset();
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Pack", pack == null ? "<none>" : pack.getMetadata().id, TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Preset", preset == null ? "<none>" : preset.id, TEXT_BRIGHT);
+
+        y += 48;
+        y = drawSectionHeader(guiGraphics, y, "PARAMETERS");
+        drawParameterViewport(guiGraphics, innerX, innerWidth, y);
+
+        int validationTop = modulePreviewPanel.y - 118;
+        validationTop = drawSectionHeader(guiGraphics, validationTop, "VALIDATION");
+        drawValidationSection(guiGraphics, innerX, validationTop, innerWidth);
+
+        int actionsTop = modulePreviewPanel.y - 62;
+        actionsTop = drawSectionHeader(guiGraphics, actionsTop, "ACTIONS");
+        guiGraphics.drawString(this.font, "Toolbar actions stay live while the world viewport is active.", innerX, actionsTop + 2, TEXT_MUTED);
+    }
+
+    private void drawModuleLibrary(GuiGraphics guiGraphics) {
+        int innerX = rightPanel.x + INSET;
+        int innerWidth = rightPanel.width - INSET * 2;
+        int y = rightPanel.y + 32;
+        y = drawSectionHeader(guiGraphics, y, "MODULE LIBRARY");
+        LoadedPack pack = session.getSelectedPack();
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Pack", pack == null ? "<none>" : pack.getMetadata().id, TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Filter", session.getModuleKindFilter(), TEXT_BLUE);
+        if (moduleListViewport != null) {
+            int headerY = moduleListViewport.y - 18;
+            guiGraphics.drawString(this.font, "Modules", innerX, headerY, TEXT_BRIGHT);
+            drawModuleList(guiGraphics);
+        }
+    }
+
+    private void drawModulePreview(GuiGraphics guiGraphics) {
+        drawPanel(guiGraphics, modulePreviewPanel, false);
+        guiGraphics.drawString(this.font, "MODULE PREVIEW", modulePreviewPanel.x + 10, modulePreviewPanel.y + 10, TEXT_BRIGHT);
         ModuleDefinition module = session.getSelectedModule();
-        int previewHeight = 132;
-        ModuleSchematicPreviewRenderer.render(guiGraphics, panelX + 10, panelY + 28, panelWidth - 20, previewHeight,
-                module,
-                session.getModuleRotationQuarterTurns(),
-                session.getModulePreviewZoomPercent(),
-                session.isShowModuleBounds(),
-                session.isShowModuleConnectors(),
-                session.isShowModuleAir());
+        int previewHeight = Math.max(118, modulePreviewPanel.height - 122);
+        ModuleSchematicPreviewRenderer.render(guiGraphics, modulePreviewPanel.x + 10, modulePreviewPanel.y + 28,
+                modulePreviewPanel.width - 20, previewHeight, module,
+                session.getModuleRotationQuarterTurns(), session.getModulePreviewZoomPercent(),
+                session.isShowModuleBounds(), session.isShowModuleConnectors(), session.isShowModuleAir());
+        int textY = modulePreviewPanel.y + previewHeight + 34;
         if (module == null) {
-            guiGraphics.drawString(this.font, "No module selected.", panelX + INSET, panelY + previewHeight + 42, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "No module selected.", modulePreviewPanel.x + 10, textY, TEXT_MUTED);
             return;
         }
-        int textY = panelY + previewHeight + 42;
-        guiGraphics.drawString(this.font, trimToWidth(module.id, panelWidth - 20), panelX + INSET, textY, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Tags: " + trimToWidth(join(module.tags), panelWidth - 20), panelX + INSET, textY + 12, TEXT_MUTED);
         SpongeSchematicData data = module.schematicData;
-        guiGraphics.drawString(this.font, "Size: " + (data == null ? "<none>" : data.getWidth() + " x " + data.getHeight() + " x " + data.getLength()),
-                panelX + INSET, textY + 24, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Mods: " + (data == null ? "<none>" : join(data.getRequiredMods())),
-                panelX + INSET, textY + 36, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Rot " + (session.getModuleRotationQuarterTurns() * 90) + "° | "
-                        + session.getModulePreviewZoomPercent() + "% | "
-                        + onOff(session.isShowModuleBounds()) + " B | " + onOff(session.isShowModuleConnectors()) + " C | " + onOff(session.isShowModuleAir()) + " Air",
-                panelX + INSET, textY + 52, TEXT_BLUE);
+        guiGraphics.drawString(this.font, trimToWidth(module.id, modulePreviewPanel.width - 20), modulePreviewPanel.x + 10, textY, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Size " + (data == null ? "<none>" : data.getWidth() + " x " + data.getHeight() + " x " + data.getLength()),
+                modulePreviewPanel.x + 10, textY + 12, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Footprint " + (data == null ? "<none>" : data.getWidth() + " x " + data.getLength()),
+                modulePreviewPanel.x + 10, textY + 24, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Tags " + trimToWidth(join(module.tags), modulePreviewPanel.width - 70),
+                modulePreviewPanel.x + 10, textY + 36, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Mods " + trimToWidth(data == null ? "<none>" : join(data.getRequiredMods()), modulePreviewPanel.width - 70),
+                modulePreviewPanel.x + 10, textY + 48, TEXT_MUTED);
     }
 
     private void drawBottomBar(GuiGraphics guiGraphics) {
-        drawPanel(guiGraphics, bottomBarX, bottomBarY, this.width - OUTER_PAD * 2, BOTTOM_BAR_HEIGHT);
-        int totalWidth = this.width - OUTER_PAD * 2 - 24;
-        int sectionWidth = Math.max(180, totalWidth / 6);
-        int warningWidth = Math.max(220, totalWidth / 5);
-        int logWidth = totalWidth - sectionWidth * 3 - warningWidth - 16;
-        int x = bottomBarX + 8;
-        drawBottomSection(guiGraphics, x, "POSITION", describePosition(), sectionWidth);
-        x += sectionWidth + 4;
-        drawBottomSection(guiGraphics, x, "SELECTION", describeSelectionStats(), sectionWidth);
-        x += sectionWidth + 4;
-        drawBottomSection(guiGraphics, x, "STATS", describePreviewStats(), sectionWidth);
-        x += sectionWidth + 4;
-        drawBottomSection(guiGraphics, x, "WARNINGS", getWarningSummary(), warningWidth);
-        x += warningWidth + 4;
-        drawMessageLog(guiGraphics, x, logWidth);
+        drawPanel(guiGraphics, bottomBar, false);
+        int contentX = bottomBar.x + 8;
+        int contentY = bottomBar.y + 8;
+        int contentHeight = bottomBar.height - 16;
+        int totalWidth = bottomBar.width - 16;
+        int sectionWidth = Math.max(168, totalWidth / 6);
+        int statsWidth = Math.max(170, totalWidth / 7);
+        int warningWidth = Math.max(210, totalWidth / 5);
+        int logWidth = totalWidth - sectionWidth * 2 - statsWidth - warningWidth - 12;
+
+        drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, sectionWidth, contentHeight), "POSITION", describePosition());
+        contentX += sectionWidth + 4;
+        drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, sectionWidth, contentHeight), "SELECTION", describeSelectionStats());
+        contentX += sectionWidth + 4;
+        drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, statsWidth, contentHeight), "STATS", describePreviewStats());
+        contentX += statsWidth + 4;
+        LayoutRect warningRect = new LayoutRect(contentX, contentY, warningWidth, contentHeight);
+        drawBottomSection(guiGraphics, warningRect, "WARNINGS", getWarningSummary());
+        contentX += warningWidth + 4;
+        messageLogRect = new LayoutRect(contentX, contentY, logWidth, contentHeight);
+        drawMessageLog(guiGraphics, messageLogRect);
     }
 
-    private void drawBottomSection(GuiGraphics guiGraphics, int x, String title, List<String> lines, int width) {
-        guiGraphics.fill(x, bottomBarY + 8, x + width, bottomBarY + BOTTOM_BAR_HEIGHT - 8, PANEL_HEADER);
-        guiGraphics.drawString(this.font, title, x + 8, bottomBarY + 14, TEXT_BRIGHT);
-        int y = bottomBarY + 32;
-        for (String line : lines) {
-            guiGraphics.drawString(this.font, trimToWidth(line, width - 16), x + 8, y, TEXT_MUTED);
-            y += 14;
+    private void drawInteractiveElements(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        for (EditorButton button : buttons) {
+            if (!button.visible) {
+                continue;
+            }
+            button.draw(guiGraphics, mouseX, mouseY);
+        }
+        for (EditorField field : fields) {
+            if (!field.visible) {
+                continue;
+            }
+            field.draw(guiGraphics);
         }
     }
 
-    private void drawMessageLog(GuiGraphics guiGraphics, int x, int width) {
-        guiGraphics.fill(x, bottomBarY + 8, x + width, bottomBarY + BOTTOM_BAR_HEIGHT - 8, PANEL_HEADER);
-        guiGraphics.drawString(this.font, "MESSAGE LOG", x + 8, bottomBarY + 14, TEXT_BRIGHT);
+    private void drawBakeConfirm(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        guiGraphics.fill(0, 0, this.width, this.height, 0x99000000);
+        LayoutRect dialog = getConfirmDialogRect();
+        drawPanel(guiGraphics, dialog, true);
+        guiGraphics.drawString(this.font, "Confirm Bake", dialog.x + 14, dialog.y + 14, TEXT_BRIGHT);
+        PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
+        int blockEntities = previewPlan == null ? 0 : countPreviewBlockEntities(previewPlan);
+        String line = previewPlan == null
+                ? "Preview missing."
+                : "Bake " + previewPlan.getPlannedBlocks().size() + " blocks across " + countPreviewChunks(previewPlan)
+                + " chunks" + (blockEntities > 0 ? " with " + blockEntities + " block entities" : "") + "?";
+        int lineY = dialog.y + 40;
+        for (String confirmLine : wrapText(line, dialog.width - 28)) {
+            guiGraphics.drawString(this.font, confirmLine, dialog.x + 14, lineY, TEXT_MUTED);
+            lineY += 12;
+        }
+
+        for (EditorButton button : confirmButtons(dialog)) {
+            button.draw(guiGraphics, mouseX, mouseY);
+        }
+    }
+
+    private boolean handleConfirmClick(double mouseX, double mouseY, int button) {
+        if (button != 0) {
+            return true;
+        }
+        LayoutRect dialog = getConfirmDialogRect();
+        for (EditorButton confirmButton : confirmButtons(dialog)) {
+            if (confirmButton.contains(mouseX, mouseY)) {
+                confirmButton.press();
+                return true;
+            }
+        }
+        return dialog.contains(mouseX, mouseY);
+    }
+
+    private List<EditorButton> confirmButtons(LayoutRect dialog) {
+        int buttonWidth = 108;
+        int y = dialog.bottom() - 36;
+        EditorButton cancel = new EditorButton("confirm_cancel",
+                new LayoutRect(dialog.right() - buttonWidth * 2 - 20, y, buttonWidth, TOP_BUTTON_HEIGHT),
+                "Cancel", false, false, () -> {
+            showBakeConfirm = false;
+            session.log(PcgEditorLogEntry.Severity.INFO, "Bake cancelled.");
+        });
+        EditorButton confirm = new EditorButton("confirm_bake",
+                new LayoutRect(dialog.right() - buttonWidth - 10, y, buttonWidth, TOP_BUTTON_HEIGHT),
+                "Bake", false, true, this::confirmBake);
+        return List.of(cancel, confirm);
+    }
+
+    private LayoutRect getConfirmDialogRect() {
+        int width = 360;
+        int height = 146;
+        return new LayoutRect((this.width - width) / 2, (this.height - height) / 2, width, height);
+    }
+
+    private void confirmBake() {
+        showBakeConfirm = false;
+        runAction("blockwright bake", PcgEditorLogEntry.Severity.SUCCESS, "Bake requested.");
+    }
+
+    private void drawParameterViewport(GuiGraphics guiGraphics, int innerX, int innerWidth, int headerY) {
+        if (parameterViewport == null) {
+            return;
+        }
+        guiGraphics.fill(parameterViewport.x, parameterViewport.y, parameterViewport.right(), parameterViewport.bottom(), 0x8010141A);
+        guiGraphics.fill(parameterViewport.x, parameterViewport.y, parameterViewport.right(), parameterViewport.y + 1, PANEL_BORDER);
+        guiGraphics.fill(parameterViewport.x, parameterViewport.bottom() - 1, parameterViewport.right(), parameterViewport.bottom(), PANEL_BORDER);
+        guiGraphics.enableScissor(parameterViewport.x, parameterViewport.y, parameterViewport.right(), parameterViewport.bottom());
+        for (ParameterField parameterField : parameterFields) {
+            EditorField field = parameterField.field;
+            if (!field.visible) {
+                continue;
+            }
+            guiGraphics.drawString(this.font, trimToWidth(parameterField.key, 116), innerX, field.bounds.y + 4, TEXT_MUTED);
+        }
+        guiGraphics.disableScissor();
+        if (maxParameterScroll > 0) {
+            guiGraphics.drawString(this.font, "Scroll", parameterViewport.right() - 36, headerY + 1, TEXT_MUTED);
+        }
+    }
+
+    private void drawModuleList(GuiGraphics guiGraphics) {
+        if (moduleListViewport == null) {
+            return;
+        }
+        guiGraphics.fill(moduleListViewport.x, moduleListViewport.y, moduleListViewport.right(), moduleListViewport.bottom(), 0x8010141A);
+        guiGraphics.fill(moduleListViewport.x, moduleListViewport.y, moduleListViewport.right(), moduleListViewport.y + 1, PANEL_BORDER);
+        guiGraphics.fill(moduleListViewport.x, moduleListViewport.bottom() - 1, moduleListViewport.right(), moduleListViewport.bottom(), PANEL_BORDER);
+        guiGraphics.enableScissor(moduleListViewport.x, moduleListViewport.y, moduleListViewport.right(), moduleListViewport.bottom());
+        int rowY = moduleListViewport.y;
+        int maxRows = Math.max(1, moduleListViewport.height / MODULE_ROW_HEIGHT);
+        int end = Math.min(visibleModules.size(), moduleListScroll + maxRows);
+        ModuleDefinition selectedModule = session.getSelectedModule();
+        for (int i = moduleListScroll; i < end; i++) {
+            ModuleDefinition module = visibleModules.get(i);
+            boolean selected = selectedModule != null && module.id.equals(selectedModule.id);
+            int rowBottom = rowY + MODULE_ROW_HEIGHT - 2;
+            guiGraphics.fill(moduleListViewport.x + 1, rowY + 1, moduleListViewport.right() - 1, rowBottom,
+                    selected ? PANEL_ACCENT_SOFT : 0x00000000);
+            guiGraphics.drawString(this.font, trimToWidth(module.id, moduleListViewport.width - 18), moduleListViewport.x + 10, rowY + 5,
+                    selected ? TEXT_BRIGHT : TEXT_MUTED);
+            guiGraphics.drawString(this.font, trimToWidth(safe(module.moduleKind), moduleListViewport.width - 18), moduleListViewport.x + 10, rowY + 16,
+                    selected ? TEXT_BLUE : TEXT_MUTED);
+            rowY += MODULE_ROW_HEIGHT;
+        }
+        guiGraphics.disableScissor();
+    }
+
+    private void drawBottomSection(GuiGraphics guiGraphics, LayoutRect rect, String title, List<String> lines) {
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), PANEL_HEADER);
+        guiGraphics.drawString(this.font, title, rect.x + 8, rect.y + 10, TEXT_BRIGHT);
+        int y = rect.y + 30;
+        for (String line : lines) {
+            guiGraphics.drawString(this.font, trimToWidth(line, rect.width - 16), rect.x + 8, y, TEXT_MUTED);
+            y += 15;
+        }
+    }
+
+    private void drawMessageLog(GuiGraphics guiGraphics, LayoutRect rect) {
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), PANEL_HEADER);
+        guiGraphics.drawString(this.font, "MESSAGE LOG", rect.x + 8, rect.y + 10, TEXT_BRIGHT);
         List<PcgEditorLogEntry> entries = session.getLogEntries();
         maxLogScroll = Math.max(0, entries.size() - 4);
         logScroll = clamp(logScroll, 0, maxLogScroll);
-        int y = bottomBarY + 32;
+        int y = rect.y + 30;
         for (int i = logScroll; i < Math.min(entries.size(), logScroll + 4); i++) {
             PcgEditorLogEntry entry = entries.get(i);
-            guiGraphics.drawString(this.font, trimToWidth(entry.getMessage(), width - 16), x + 8, y, logColor(entry), false);
+            guiGraphics.drawString(this.font, trimToWidth(entry.getMessage(), rect.width - 16), rect.x + 8, y, logColor(entry));
             y += LOG_ROW_HEIGHT;
         }
     }
 
-    private void drawViewportHints(GuiGraphics guiGraphics) {
-        guiGraphics.fill(viewportX + 18, viewportY + 18, viewportX + 214, viewportY + 74, 0xB0141920);
-        guiGraphics.drawString(this.font, "Hold RMB to navigate,", viewportX + 28, viewportY + 30, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "WASD to fly,", viewportX + 28, viewportY + 42, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "LMB to edit.", viewportX + 28, viewportY + 54, TEXT_BRIGHT);
-
-        int miniPanelTop = viewportY + viewportHeight - 112;
-        guiGraphics.fill(viewportX + 18, miniPanelTop, viewportX + 172, viewportY + viewportHeight - 18, 0xB0141920);
-        guiGraphics.drawString(this.font, "VIEW", viewportX + 28, miniPanelTop + 10, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Editor Overlay", viewportX + 28, miniPanelTop + 24, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "SNAP", viewportX + 28, miniPanelTop + 44, TEXT_MUTED);
-        guiGraphics.drawString(this.font, session.getSnapStep() + " blocks", viewportX + 28, miniPanelTop + 58, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Selection: " + session.getSelectionLabel(), viewportX + 28, miniPanelTop + 78, TEXT_MUTED);
-
-        PcgEditorPreviewState previewState = session.getPreviewState();
-        if (previewState == PcgEditorPreviewState.DIRTY) {
-            guiGraphics.fill(viewportX + viewportWidth - 168, viewportY + 18, viewportX + viewportWidth - 18, viewportY + 46, 0xB0332A16);
-            guiGraphics.drawString(this.font, "Outdated Preview", viewportX + viewportWidth - 154, viewportY + 28, TEXT_YELLOW);
-        } else if (previewState == PcgEditorPreviewState.ERROR) {
-            guiGraphics.fill(viewportX + viewportWidth - 160, viewportY + 18, viewportX + viewportWidth - 18, viewportY + 46, 0xB03A1719);
-            guiGraphics.drawString(this.font, "Preview Error", viewportX + viewportWidth - 146, viewportY + 28, TEXT_RED);
-        }
+    private int drawSectionHeader(GuiGraphics guiGraphics, int y, String title) {
+        guiGraphics.fill(rightPanel.x + 1, y, rightPanel.right() - 1, y + 16, PANEL_HEADER);
+        guiGraphics.drawString(this.font, title, rightPanel.x + INSET, y + 4, TEXT_BRIGHT);
+        return y + 24;
     }
 
-    private int drawInspectorHeader(GuiGraphics guiGraphics, int y, String title) {
-        guiGraphics.fill(rightPanelX + 1, y, rightPanelX + RIGHT_PANEL_WIDTH - 1, y + 14, PANEL_HEADER);
-        guiGraphics.drawString(this.font, title, rightInnerX, y + 3, TEXT_BRIGHT);
-        return y + 22;
-    }
-
-    private void drawTransformSection(GuiGraphics guiGraphics, int y) {
-        guiGraphics.drawString(this.font, "Pos", rightInnerX, y + 5, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "X", rightInnerX + 30, y + 5, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Y", rightInnerX + 94, y + 5, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Z", rightInnerX + 158, y + 5, TEXT_MUTED);
+    private void drawTransformSection(GuiGraphics guiGraphics, int innerX, int y) {
+        guiGraphics.drawString(this.font, "Pos", innerX, y + 4, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "X", innerX + 44, y + 4, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Y", innerX + 116, y + 4, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Z", innerX + 188, y + 4, TEXT_MUTED);
         if (session.getSelection() == PcgEditorSelection.REGION) {
             BoxRegionSelection region = ClientSelectionState.getRegionSelection();
-            BlockPos min = region.getMin();
             BlockPos max = region.getMax();
-            guiGraphics.drawString(this.font, "Max", rightInnerX, y + 26, TEXT_MUTED);
-            guiGraphics.drawString(this.font, max == null ? "<unset>" : max.toShortString(), rightInnerX + 86, y + 26, TEXT_BRIGHT);
-            guiGraphics.drawString(this.font, "Size", rightInnerX, y + 38, TEXT_MUTED);
-            guiGraphics.drawString(this.font, region.isComplete() ? region.getWidth() + " x " + region.getHeight() + " x " + region.getDepth() : "<none>",
-                    rightInnerX + 86, y + 38, TEXT_BRIGHT);
+            guiGraphics.drawString(this.font, "Max", innerX, y + 30, TEXT_MUTED);
+            guiGraphics.drawString(this.font, max == null ? "<unset>" : max.toShortString(), innerX + 82, y + 30, TEXT_BRIGHT);
+            guiGraphics.drawString(this.font, "Size", innerX, y + 44, TEXT_MUTED);
+            guiGraphics.drawString(this.font,
+                    region.isComplete() ? region.getWidth() + " x " + region.getHeight() + " x " + region.getDepth() : "<none>",
+                    innerX + 82, y + 44, TEXT_BRIGHT);
             return;
         }
         if (session.getSelection() == PcgEditorSelection.SPLINE || session.getSelection() == PcgEditorSelection.SPLINE_POINT) {
-            BlockPos point = session.getSelectedSplinePoint();
             SplineSelection spline = ClientSelectionState.getSplineSelection();
-            guiGraphics.drawString(this.font, "Points", rightInnerX, y + 26, TEXT_MUTED);
-            guiGraphics.drawString(this.font, String.valueOf(spline.getPoints().size()), rightInnerX + 86, y + 26, TEXT_BRIGHT);
-            guiGraphics.drawString(this.font, "Point", rightInnerX, y + 38, TEXT_MUTED);
-            guiGraphics.drawString(this.font, point == null ? "<unset>" : point.toShortString(), rightInnerX + 86, y + 38, TEXT_BRIGHT);
+            BlockPos point = session.getSelectedSplinePoint();
+            guiGraphics.drawString(this.font, "Points", innerX, y + 30, TEXT_MUTED);
+            guiGraphics.drawString(this.font, String.valueOf(spline.getPoints().size()), innerX + 82, y + 30, TEXT_BRIGHT);
+            guiGraphics.drawString(this.font, "Point", innerX, y + 44, TEXT_MUTED);
+            guiGraphics.drawString(this.font, point == null ? "<unset>" : point.toShortString(), innerX + 82, y + 44, TEXT_BRIGHT);
             return;
         }
-        guiGraphics.drawString(this.font, "Focus", rightInnerX, y + 26, TEXT_MUTED);
-        guiGraphics.drawString(this.font, safe(session.getSelectionLabel()), rightInnerX + 86, y + 26, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Focus", innerX, y + 30, TEXT_MUTED);
+        guiGraphics.drawString(this.font, safe(session.getSelectionLabel()), innerX + 82, y + 30, TEXT_BRIGHT);
     }
 
-    private void drawInputSection(GuiGraphics guiGraphics, int y) {
-        PresetDefinition preset = session.getSelectedPreset();
-        String required = describePresetMode(preset);
-        guiGraphics.drawString(this.font, "Required", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, required, rightInnerX + 86, y, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Current", rightInnerX, y + 12, TEXT_MUTED);
-        guiGraphics.drawString(this.font, describeSelectionInput(), rightInnerX + 86, y + 12,
-                isInputCompatible(required) ? TEXT_GREEN : TEXT_RED);
-    }
-
-    private void drawPresetSection(GuiGraphics guiGraphics, int y) {
-        PresetDefinition preset = session.getSelectedPreset();
-        LoadedPack pack = session.getSelectedPack();
-        guiGraphics.drawString(this.font, "Preset", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, preset == null ? "<none>" : preset.id, rightInnerX + 86, y, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Pack", rightInnerX, y + 12, TEXT_MUTED);
-        guiGraphics.drawString(this.font, pack == null ? "<none>" : pack.getMetadata().id, rightInnerX + 86, y + 12, TEXT_BRIGHT);
-    }
-
-    private void drawParameterLabels(GuiGraphics guiGraphics, int y) {
-        int baseY = parameterViewportTop - parameterScroll;
-        for (int i = 0; i < parameterKeys.size(); i++) {
-            int labelY = baseY + i * PARAMETER_ROW_HEIGHT + 7;
-            if (labelY < parameterViewportTop - LOG_ROW_HEIGHT || labelY > parameterViewportBottom - LOG_ROW_HEIGHT) {
-                continue;
-            }
-            guiGraphics.drawString(this.font, trimToWidth(parameterKeys.get(i), 94), rightInnerX, labelY, TEXT_MUTED);
-        }
-        if (parameterBoxes.size() > 0 && maxParameterScroll > 0) {
-            guiGraphics.drawString(this.font, "Scroll", rightPanelX + RIGHT_PANEL_WIDTH - 48, y, TEXT_MUTED);
-        }
-    }
-
-    private void drawValidationSection(GuiGraphics guiGraphics, int y) {
+    private void drawValidationSection(GuiGraphics guiGraphics, int innerX, int y, int innerWidth) {
         PcgEditorPreviewState state = session.getPreviewState();
-        guiGraphics.drawString(this.font, "State", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, state.name(), rightInnerX + 86, y, colorForPreviewState(state));
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "State", state.name(), colorForPreviewState(state));
         List<String> warnings = getWarningSummary();
-        int lineY = y + 12;
+        int lineY = y + 18;
+        if (warnings.isEmpty()) {
+            guiGraphics.drawString(this.font, "No issues found.", innerX, lineY, TEXT_GREEN);
+            return;
+        }
         for (String warning : warnings.subList(0, Math.min(3, warnings.size()))) {
-            guiGraphics.drawString(this.font, trimToWidth(warning, RIGHT_PANEL_WIDTH - INSET * 2), rightInnerX, lineY, warning.startsWith("ERROR") ? TEXT_RED : TEXT_YELLOW);
+            int color = warning.startsWith("ERROR") ? TEXT_RED : TEXT_YELLOW;
+            guiGraphics.drawString(this.font, trimToWidth(warning, innerWidth), innerX, lineY, color);
             lineY += 12;
         }
-        if (warnings.isEmpty()) {
-            guiGraphics.drawString(this.font, "No issues found.", rightInnerX, lineY, TEXT_GREEN);
+    }
+
+    private void drawLabelValue(GuiGraphics guiGraphics, int x, int y, int width, String label, String value, int valueColor) {
+        guiGraphics.drawString(this.font, label, x, y, TEXT_MUTED);
+        guiGraphics.drawString(this.font, trimToWidth(value, Math.max(32, width - 92)), x + 86, y, valueColor);
+    }
+
+    private void drawViewportFrame(GuiGraphics guiGraphics) {
+        drawPanel(guiGraphics, viewport, false);
+    }
+
+    private void drawPanel(GuiGraphics guiGraphics, LayoutRect rect, boolean topAccent) {
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), PANEL_BG);
+        if (topAccent) {
+            guiGraphics.fill(rect.x, rect.y, rect.right(), rect.y + 2, PANEL_ACCENT);
         }
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.y + 1, PANEL_BORDER);
+        guiGraphics.fill(rect.x, rect.bottom() - 1, rect.right(), rect.bottom(), PANEL_BORDER);
+        guiGraphics.fill(rect.x, rect.y, rect.x + 1, rect.bottom(), PANEL_BORDER);
+        guiGraphics.fill(rect.right() - 1, rect.y, rect.right(), rect.bottom(), PANEL_BORDER);
     }
 
-    private void drawActionHints(GuiGraphics guiGraphics, int y) {
-        guiGraphics.drawString(this.font, "F Focus  |  Del Delete", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "P Preview  |  B Bake", rightInnerX, y + 12, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Ctrl+Z Undo  |  Ctrl+Y Redo", rightInnerX, y + 24, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Transform uses the X/Y/Z fields above.", rightInnerX, y + 36, TEXT_MUTED);
+    private EditorButton addButton(String id, int x, int y, int width, int height, String label, boolean selected, boolean danger, Runnable onPress) {
+        EditorButton button = new EditorButton(id, new LayoutRect(x, y, width, height), label, selected, danger, onPress);
+        buttons.add(button);
+        return button;
     }
 
-    private void drawModuleDetails(GuiGraphics guiGraphics, int y, ModuleDefinition module) {
-        if (module == null) {
-            guiGraphics.drawString(this.font, "No module selected.", rightInnerX, y, TEXT_MUTED);
+    private EditorField addField(String id, int x, int y, int width, int height, String value, boolean integerOnly, Consumer<String> onChange) {
+        EditorField field = new EditorField(id, new LayoutRect(x, y, width, height), value == null ? "" : value, integerOnly, onChange);
+        fields.add(field);
+        return field;
+    }
+
+    private void restoreFocus(String focusedId) {
+        if (focusedId == null) {
             return;
         }
-        SpongeSchematicData data = module.schematicData;
-        guiGraphics.drawString(this.font, "Kind", rightInnerX, y, TEXT_MUTED);
-        guiGraphics.drawString(this.font, safe(module.moduleKind), rightInnerX + 86, y, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Size", rightInnerX, y + 12, TEXT_MUTED);
-        guiGraphics.drawString(this.font, data == null ? joinInts(module.size) : data.getWidth() + " x " + data.getHeight() + " x " + data.getLength(),
-                rightInnerX + 86, y + 12, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Tags", rightInnerX, y + 24, TEXT_MUTED);
-        guiGraphics.drawString(this.font, trimToWidth(join(module.tags), RIGHT_PANEL_WIDTH - INSET * 2 - 86), rightInnerX + 86, y + 24, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Mods", rightInnerX, y + 36, TEXT_MUTED);
-        guiGraphics.drawString(this.font, trimToWidth(data == null ? "<none>" : join(data.getRequiredMods()), RIGHT_PANEL_WIDTH - INSET * 2 - 86),
-                rightInnerX + 86, y + 36, TEXT_BRIGHT);
-        if (!module.connectors.isEmpty()) {
-            int lineY = y + 48;
-            guiGraphics.drawString(this.font, "Connectors", rightInnerX, lineY, TEXT_MUTED);
-            for (ModuleConnector connector : module.connectors.subList(0, Math.min(3, module.connectors.size()))) {
-                lineY += 12;
-                guiGraphics.drawString(this.font, trimToWidth(connector.id + " / " + safe(connector.direction), RIGHT_PANEL_WIDTH - INSET * 2),
-                        rightInnerX, lineY, TEXT_BLUE);
+        for (EditorField field : fields) {
+            if (field.id.equals(focusedId)) {
+                focusedField = field;
+                field.focused = true;
+                field.caret = field.value.length();
+                return;
             }
         }
+    }
+
+    private boolean handleButtonClick(double mouseX, double mouseY) {
+        for (EditorButton button : buttons) {
+            if (button.visible && button.contains(mouseX, mouseY)) {
+                button.press();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handleFieldClick(double mouseX, double mouseY) {
+        for (EditorField field : fields) {
+            if (!field.visible) {
+                continue;
+            }
+            if (field.contains(mouseX, mouseY)) {
+                focusField(field);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void focusField(EditorField field) {
+        if (focusedField != null) {
+            focusedField.focused = false;
+        }
+        focusedField = field;
+        focusedField.focused = true;
+        focusedField.caret = focusedField.value.length();
+    }
+
+    private void clearFocus() {
+        if (focusedField != null) {
+            focusedField.focused = false;
+        }
+        focusedField = null;
+    }
+
+    private void layoutParameterFields() {
+        if (parameterViewport == null) {
+            return;
+        }
+        int contentHeight = parameterFields.size() * ROW_HEIGHT;
+        maxParameterScroll = Math.max(0, contentHeight - parameterViewport.height);
+        parameterScroll = clamp(parameterScroll, 0, maxParameterScroll);
+        for (ParameterField parameterField : parameterFields) {
+            int y = parameterViewport.y + parameterField.rowIndex * ROW_HEIGHT - parameterScroll + 4;
+            parameterField.field.bounds = new LayoutRect(parameterField.field.bounds.x, y, parameterField.field.bounds.width, parameterField.field.bounds.height);
+            parameterField.field.visible = y + parameterField.field.bounds.height >= parameterViewport.y
+                    && y <= parameterViewport.bottom();
+            if (!parameterField.field.visible && parameterField.field.focused) {
+                clearFocus();
+            }
+        }
+    }
+
+    private void clampLogScroll() {
+        List<PcgEditorLogEntry> entries = session.getLogEntries();
+        maxLogScroll = Math.max(0, entries.size() - 4);
+        logScroll = clamp(logScroll, 0, maxLogScroll);
+    }
+
+    private void refreshVisibleModules() {
+        visibleModules.clear();
+        visibleModules.addAll(getFilteredModules(session.getSelectedPack()));
+        if (moduleListViewport != null) {
+            int maxRows = Math.max(1, moduleListViewport.height / MODULE_ROW_HEIGHT);
+            maxModuleListScroll = Math.max(0, visibleModules.size() - maxRows);
+            moduleListScroll = clamp(moduleListScroll, 0, maxModuleListScroll);
+        }
+    }
+
+    private String buildUiSignature() {
+        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
+        SplineSelection spline = ClientSelectionState.getSplineSelection();
+        ModuleDefinition module = session.getSelectedModule();
+        return session.getActiveTool().name()
+                + "|" + session.getSelection().name()
+                + "|" + safe(session.getSelectedPackId())
+                + "|" + safe(session.getSelectedPresetId())
+                + "|" + safe(module == null ? session.getSelectedModuleId() : module.id)
+                + "|" + region.isComplete()
+                + "|" + region.getWidth() + "x" + region.getHeight() + "x" + region.getDepth()
+                + "|" + spline.getPoints().size()
+                + "|" + session.getSelectedSplinePointIndex()
+                + "|" + session.getPreviewState().name()
+                + "|" + session.getModuleKindFilter()
+                + "|" + this.width + "x" + this.height;
     }
 
     private boolean handleViewportClick() {
@@ -948,11 +1096,12 @@ public final class PcgEditorScreen extends Screen {
                 session.selectSplineIfPresent();
                 session.setSelection(PcgEditorSelection.SPLINE_POINT);
                 session.setSelectedSplinePointIndex(ClientSelectionState.getSplineSelection().getPoints().size() - 1);
-                rebuildWidgets();
+                rebuildUi();
                 return true;
             }
             case SELECT -> {
                 selectBestObject();
+                rebuildUi();
                 return true;
             }
             case TRANSFORM -> {
@@ -977,7 +1126,7 @@ public final class PcgEditorScreen extends Screen {
             runAction("blockwright region pos2", PcgEditorLogEntry.Severity.INFO, "Set region corner P2.");
             session.setSelection(PcgEditorSelection.REGION);
         }
-        rebuildWidgets();
+        rebuildUi();
     }
 
     private void selectBestObject() {
@@ -1002,20 +1151,22 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private boolean selectModuleFromList(double mouseY) {
-        List<ModuleDefinition> modules = getFilteredModules(session.getSelectedPack());
-        int index = (int) ((mouseY - moduleListTop) / MODULE_ROW_HEIGHT) + moduleListScroll;
-        if (index < 0 || index >= modules.size()) {
+        int index = (int) ((mouseY - moduleListViewport.y) / MODULE_ROW_HEIGHT) + moduleListScroll;
+        if (index < 0 || index >= visibleModules.size()) {
             return false;
         }
-        session.setSelectedModuleId(modules.get(index).id);
+        ModuleDefinition module = visibleModules.get(index);
+        session.setSelectedModuleId(module.id);
         session.setSelection(PcgEditorSelection.MODULE);
-        session.log(PcgEditorLogEntry.Severity.INFO, "Selected module " + modules.get(index).id + ".");
+        session.log(PcgEditorLogEntry.Severity.INFO, "Selected module " + module.id + ".");
+        rebuildUi();
         return true;
     }
 
     private void startNavigation() {
         Minecraft minecraft = Minecraft.getInstance();
         session.setNavigating(true);
+        clearFocus();
         minecraft.mouseHandler.grabMouse();
         minecraft.mouseHandler.setIgnoreFirstMove();
     }
@@ -1029,52 +1180,59 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void updateActionStates() {
-        PcgEditorPreviewState previewState = session.getPreviewState();
         PresetDefinition preset = session.getSelectedPreset();
-        PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
+        PcgEditorPreviewState previewState = session.getPreviewState();
+        ModuleDefinition selectedModule = session.getSelectedModule();
         if (previewButton != null) {
-            previewButton.active = preset != null && hasValidInputForPreset(preset);
+            previewButton.enabled = preset != null && hasValidInputForPreset(preset);
         }
         if (regenerateButton != null) {
-            regenerateButton.active = preset != null && hasValidInputForPreset(preset);
+            regenerateButton.enabled = preset != null && hasValidInputForPreset(preset);
         }
         if (bakeButton != null) {
-            bakeButton.active = previewState == PcgEditorPreviewState.VALID || previewState == PcgEditorPreviewState.WARNING;
+            bakeButton.enabled = previewState == PcgEditorPreviewState.VALID || previewState == PcgEditorPreviewState.WARNING;
         }
         if (undoButton != null) {
-            undoButton.active = true;
+            undoButton.enabled = true;
         }
         if (redoButton != null) {
-            redoButton.active = false;
+            redoButton.enabled = false;
         }
         if (reloadButton != null) {
-            reloadButton.active = true;
+            reloadButton.enabled = true;
         }
-        if (previewPlan != null && previewPlan.isStale()) {
-            previewButton.setMessage(Component.literal("Preview"));
-            regenerateButton.setMessage(Component.literal("Regenerate"));
-        }
-        ModuleDefinition selectedModule = session.getSelectedModule();
         if (moduleExportButton != null) {
-            moduleExportButton.active = ClientSelectionState.getRegionSelection().isComplete();
+            moduleExportButton.enabled = ClientSelectionState.getRegionSelection().isComplete();
         }
         if (moduleRotateButton != null) {
-            moduleRotateButton.active = selectedModule != null;
-        }
-        if (moduleZoomInButton != null) {
-            moduleZoomInButton.active = selectedModule != null && session.getModulePreviewZoomPercent() < 200;
+            moduleRotateButton.enabled = selectedModule != null;
         }
         if (moduleZoomOutButton != null) {
-            moduleZoomOutButton.active = selectedModule != null && session.getModulePreviewZoomPercent() > 50;
+            moduleZoomOutButton.enabled = selectedModule != null && session.getModulePreviewZoomPercent() > 50;
+        }
+        if (moduleZoomInButton != null) {
+            moduleZoomInButton.enabled = selectedModule != null && session.getModulePreviewZoomPercent() < 200;
         }
         if (moduleBoundsButton != null) {
-            moduleBoundsButton.active = selectedModule != null;
+            moduleBoundsButton.enabled = selectedModule != null;
         }
         if (moduleConnectorsButton != null) {
-            moduleConnectorsButton.active = selectedModule != null;
+            moduleConnectorsButton.enabled = selectedModule != null;
         }
         if (moduleAirButton != null) {
-            moduleAirButton.active = selectedModule != null;
+            moduleAirButton.enabled = selectedModule != null;
+        }
+        if (focusButton != null) {
+            focusButton.enabled = session.getSelectionFocus() != null;
+        }
+        if (deleteButton != null) {
+            deleteButton.enabled = session.getSelection() != PcgEditorSelection.NONE;
+        }
+        if (clearPreviewButton != null) {
+            clearPreviewButton.enabled = ClientPreviewState.getPreviewPlan() != null;
+        }
+        if (transformApplyButton != null) {
+            transformApplyButton.enabled = isTransformSelection();
         }
     }
 
@@ -1086,9 +1244,6 @@ public final class PcgEditorScreen extends Screen {
         session.setActiveTool(tool);
         if (tool == PcgEditorTool.MODULE_LIBRARY) {
             session.setSelection(PcgEditorSelection.MODULE);
-            if (session.getSelectedModule() != null) {
-                session.setSelectedModuleId(session.getSelectedModule().id);
-            }
         } else if (tool == PcgEditorTool.BOX_REGION) {
             session.selectRegionIfPresent();
         } else if (tool == PcgEditorTool.SPLINE) {
@@ -1101,7 +1256,7 @@ public final class PcgEditorScreen extends Screen {
             selectBestObject();
         }
         session.log(PcgEditorLogEntry.Severity.INFO, "Active tool: " + tool.getTitle() + ".");
-        refreshUi();
+        rebuildUi();
     }
 
     private void cyclePack(int delta) {
@@ -1115,8 +1270,9 @@ public final class PcgEditorScreen extends Screen {
         session.setSelectedPackId(packs.get(nextIndex).getMetadata().id);
         session.setSelectedPresetId(null);
         session.setSelectedModuleId(null);
+        parameterOverrides.clear();
         session.markDirty("Pack selection changed.");
-        refreshUi();
+        rebuildUi();
     }
 
     private void cyclePreset(int delta) {
@@ -1129,16 +1285,18 @@ public final class PcgEditorScreen extends Screen {
         int currentIndex = current == null ? 0 : presets.indexOf(current);
         int nextIndex = Math.floorMod(currentIndex + delta, presets.size());
         session.setSelectedPresetId(presets.get(nextIndex).id);
+        parameterOverrides.clear();
         session.markDirty("Preset selection changed.");
-        refreshUi();
+        rebuildUi();
     }
 
     private void reloadPacks() {
         Blockwright.getPackManager().reload();
+        parameterOverrides.clear();
         session.markDirty("Preset packs reloaded.");
         session.log(PcgEditorLogEntry.Severity.SUCCESS, "Reloaded " + Blockwright.getPackManager().getLoadedPackCount() + " pack(s).");
         sendCommand("blockwright reload");
-        refreshUi();
+        rebuildUi();
     }
 
     private void generatePreview(boolean regenerate) {
@@ -1154,11 +1312,10 @@ public final class PcgEditorScreen extends Screen {
         session.log(PcgEditorLogEntry.Severity.INFO, regenerate ? "Regenerating preview..." : "Generating preview...");
         Map<String, String> overrideMap = new LinkedHashMap<>();
         List<String> overrideParts = new ArrayList<>();
-        for (int i = 0; i < parameterKeys.size(); i++) {
-            String key = parameterKeys.get(i);
-            String value = parameterBoxes.get(i).getValue();
-            overrideMap.put(key, value);
-            overrideParts.add(key + "=" + value);
+        for (ParameterField field : parameterFields) {
+            String value = field.field.value;
+            overrideMap.put(field.key, value);
+            overrideParts.add(field.key + "=" + value);
         }
         PreviewPlan plan = ClientPreviewGenerator.generate(preset.id, overrideMap);
         if (plan == null) {
@@ -1191,19 +1348,7 @@ public final class PcgEditorScreen extends Screen {
             runAction("blockwright bake", PcgEditorLogEntry.Severity.SUCCESS, "Bake requested.");
             return;
         }
-
-        int blockEntities = countPreviewBlockEntities(previewPlan);
-        Minecraft.getInstance().setScreen(new ConfirmScreen(confirmed -> {
-            if (confirmed) {
-                Minecraft.getInstance().setScreen(this);
-                runAction("blockwright bake", PcgEditorLogEntry.Severity.SUCCESS, "Bake requested.");
-                return;
-            }
-            Minecraft.getInstance().setScreen(this);
-            session.log(PcgEditorLogEntry.Severity.INFO, "Bake cancelled.");
-        }, Component.literal("Confirm Bake"),
-                Component.literal("Bake " + previewPlan.getPlannedBlocks().size() + " blocks across " + countPreviewChunks(previewPlan)
-                        + " chunks" + (blockEntities > 0 ? " with " + blockEntities + " block entities" : "") + "?")));
+        showBakeConfirm = true;
     }
 
     private void runAction(String command, PcgEditorLogEntry.Severity severity, String message) {
@@ -1228,7 +1373,7 @@ public final class PcgEditorScreen extends Screen {
             default -> session.log(PcgEditorLogEntry.Severity.DEBUG, "Nothing is selected.");
         }
         session.syncSelectionDefaults();
-        refreshUi();
+        rebuildUi();
     }
 
     private void focusSelection() {
@@ -1243,17 +1388,16 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void applyTransformEdit() {
-        if (transformXBox == null || transformYBox == null || transformZBox == null) {
+        if (transformXField == null || transformYField == null || transformZField == null) {
             return;
         }
-
         int x;
         int y;
         int z;
         try {
-            x = Integer.parseInt(transformXBox.getValue().trim());
-            y = Integer.parseInt(transformYBox.getValue().trim());
-            z = Integer.parseInt(transformZBox.getValue().trim());
+            x = Integer.parseInt(transformXField.value.trim());
+            y = Integer.parseInt(transformYField.value.trim());
+            z = Integer.parseInt(transformZField.value.trim());
         } catch (NumberFormatException exception) {
             session.log(PcgEditorLogEntry.Severity.ERROR, "Transform fields must be integers.");
             return;
@@ -1271,7 +1415,7 @@ public final class PcgEditorScreen extends Screen {
             runAction("blockwright region set " + x + " " + y + " " + z + " " + x2 + " " + y2 + " " + z2,
                     PcgEditorLogEntry.Severity.INFO, "Moved Box Region_01.");
             session.setSelection(PcgEditorSelection.REGION);
-            refreshUi();
+            rebuildUi();
             return;
         }
 
@@ -1291,7 +1435,7 @@ public final class PcgEditorScreen extends Screen {
             session.setSelection(PcgEditorSelection.SPLINE_POINT);
             session.setSelectedSplinePointIndex(pointIndex);
             session.log(PcgEditorLogEntry.Severity.INFO, "Moved spline point #" + pointIndex + ".");
-            refreshUi();
+            rebuildUi();
         }
     }
 
@@ -1305,8 +1449,7 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private boolean hasValidInputForPreset(PresetDefinition preset) {
-        String input = describePresetMode(preset);
-        return isInputCompatible(input);
+        return isInputCompatible(describePresetMode(preset));
     }
 
     private boolean isInputCompatible(String required) {
@@ -1321,23 +1464,20 @@ public final class PcgEditorScreen extends Screen {
         return false;
     }
 
-    private boolean isInViewport(double mouseX, double mouseY) {
-        return mouseX >= viewportX && mouseX <= viewportX + viewportWidth
-                && mouseY >= viewportY && mouseY <= viewportY + viewportHeight;
-    }
-
     private void exportRegionAsModule() {
         if (!ClientSelectionState.getRegionSelection().isComplete()) {
             session.log(PcgEditorLogEntry.Severity.ERROR, "Export requires a complete Box Region.");
             return;
         }
-        String moduleId = sanitizeModuleId(moduleExportIdBox == null ? session.getExportModuleId() : moduleExportIdBox.getValue());
+        String raw = moduleExportField == null ? session.getExportModuleId() : moduleExportField.value;
+        String moduleId = sanitizeModuleId(raw);
         if (moduleId.isBlank()) {
             session.log(PcgEditorLogEntry.Severity.ERROR, "Module id cannot be empty.");
             return;
         }
         session.setExportModuleId(moduleId);
         runAction("blockwright export-schem " + moduleId, PcgEditorLogEntry.Severity.SUCCESS, "Exported region as module " + moduleId + ".");
+        rebuildUi();
     }
 
     private List<ModuleDefinition> getFilteredModules(LoadedPack pack) {
@@ -1379,15 +1519,6 @@ public final class PcgEditorScreen extends Screen {
         return false;
     }
 
-    private void updateModuleScroll(int moduleCount) {
-        if (moduleListTop == 0 || moduleListBottom == 0) {
-            return;
-        }
-        int visibleRows = Math.max(1, (moduleListBottom - moduleListTop) / MODULE_ROW_HEIGHT);
-        maxModuleListScroll = Math.max(0, moduleCount - visibleRows);
-        moduleListScroll = clamp(moduleListScroll, 0, maxModuleListScroll);
-    }
-
     private List<String> describePosition() {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) {
@@ -1425,7 +1556,8 @@ public final class PcgEditorScreen extends Screen {
         }
         return List.of(
                 "Blocks: " + previewPlan.getPlannedBlocks().size(),
-                "Entities: " + blockEntities + " | " + session.getPreviewState().name()
+                "Entities: " + blockEntities,
+                "State: " + session.getPreviewState().name()
         );
     }
 
@@ -1510,20 +1642,34 @@ public final class PcgEditorScreen extends Screen {
         return "Kind: " + safe(session.getModuleKindFilter());
     }
 
-    private int getModulePreviewPanelX() {
-        return rightPanelX + INSET;
+    private boolean isTransformSelection() {
+        return session.getSelection() == PcgEditorSelection.REGION || session.getSelection() == PcgEditorSelection.SPLINE_POINT;
     }
 
-    private int getModulePreviewPanelY() {
-        return inspectorContentBottom - PREVIEW_PANEL_HEIGHT;
+    private BlockPos currentTransformOrigin() {
+        if (session.getSelection() == PcgEditorSelection.REGION) {
+            return ClientSelectionState.getRegionSelection().getMin();
+        }
+        if (session.getSelection() == PcgEditorSelection.SPLINE_POINT) {
+            return session.getSelectedSplinePoint();
+        }
+        return BlockPos.ZERO;
     }
 
-    private int getModulePreviewPanelWidth() {
-        return RIGHT_PANEL_WIDTH - INSET * 2;
+    private String toolLabel(PcgEditorTool tool) {
+        return switch (tool) {
+            case BOX_REGION -> "BOX REGION";
+            case MODULE_LIBRARY -> "MODULE LIBRARY";
+            case PAINT_MASK -> "PAINT / MASK";
+            default -> tool.getTitle().toUpperCase(Locale.ROOT);
+        };
     }
 
-    private int getModulePreviewPanelHeight() {
-        return PREVIEW_PANEL_HEIGHT - 8;
+    private int computeToolButtonHeight() {
+        int toolCount = PcgEditorTool.values().length;
+        int reserved = 180;
+        int available = leftBar.height - reserved - (toolCount - 1) * 8 - 16;
+        return Math.max(68, Math.min(TOOL_BUTTON_HEIGHT, available / Math.max(1, toolCount)));
     }
 
     private String sanitizeModuleId(String rawValue) {
@@ -1566,14 +1712,6 @@ public final class PcgEditorScreen extends Screen {
         };
     }
 
-    private void drawPanel(GuiGraphics guiGraphics, int x, int y, int width, int height) {
-        guiGraphics.fill(x, y, x + width, y + height, PANEL_BG);
-        guiGraphics.fill(x, y, x + width, y + 1, PANEL_BORDER);
-        guiGraphics.fill(x, y + height - 1, x + width, y + height, PANEL_BORDER);
-        guiGraphics.fill(x, y, x + 1, y + height, PANEL_BORDER);
-        guiGraphics.fill(x + width - 1, y, x + width, y + height, PANEL_BORDER);
-    }
-
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
     }
@@ -1597,18 +1735,205 @@ public final class PcgEditorScreen extends Screen {
         return String.join(", ", values);
     }
 
-    private static String joinInts(List<Integer> values) {
-        if (values == null || values.isEmpty()) {
-            return "<none>";
+    private List<String> wrapText(String text, int width) {
+        List<String> lines = new ArrayList<>();
+        String remaining = text == null ? "" : text;
+        while (!remaining.isEmpty()) {
+            String line = this.font.plainSubstrByWidth(remaining, width);
+            if (line.isEmpty()) {
+                break;
+            }
+            lines.add(line);
+            remaining = remaining.substring(line.length()).stripLeading();
         }
-        List<String> parts = new ArrayList<>();
-        for (Integer value : values) {
-            parts.add(String.valueOf(value));
+        if (lines.isEmpty()) {
+            lines.add("");
         }
-        return String.join(" x ", parts);
+        return lines;
     }
 
-    private static String onOff(boolean enabled) {
-        return enabled ? "On" : "Off";
+    private final class EditorButton {
+        private final String id;
+        private final LayoutRect bounds;
+        private final Runnable onPress;
+        private String label;
+        private boolean selected;
+        private boolean danger;
+        private boolean enabled = true;
+        private boolean visible = true;
+
+        private EditorButton(String id, LayoutRect bounds, String label, boolean selected, boolean danger, Runnable onPress) {
+            this.id = id;
+            this.bounds = bounds;
+            this.label = label;
+            this.selected = selected;
+            this.danger = danger;
+            this.onPress = onPress;
+        }
+
+        private boolean contains(double mouseX, double mouseY) {
+            return bounds.contains(mouseX, mouseY);
+        }
+
+        private void press() {
+            if (!enabled || onPress == null) {
+                return;
+            }
+            onPress.run();
+        }
+
+        private void draw(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+            int fill = !enabled ? 0x9930363F : selected ? BUTTON_ACTIVE : danger ? BUTTON_DANGER : BUTTON_BG;
+            if (enabled && contains(mouseX, mouseY) && !selected) {
+                fill = danger ? 0xFF814444 : BUTTON_HOVER;
+            }
+            guiGraphics.fill(bounds.x, bounds.y, bounds.right(), bounds.bottom(), fill);
+            guiGraphics.fill(bounds.x, bounds.y, bounds.right(), bounds.y + 1, PANEL_BORDER);
+            guiGraphics.fill(bounds.x, bounds.bottom() - 1, bounds.right(), bounds.bottom(), PANEL_BORDER);
+            guiGraphics.fill(bounds.x, bounds.y, bounds.x + 1, bounds.bottom(), PANEL_BORDER);
+            guiGraphics.fill(bounds.right() - 1, bounds.y, bounds.right(), bounds.bottom(), PANEL_BORDER);
+            int textColor = enabled ? TEXT_BRIGHT : TEXT_MUTED;
+            int textWidth = font.width(label);
+            guiGraphics.drawString(font, label, bounds.x + Math.max(6, (bounds.width - textWidth) / 2), bounds.y + Math.max(6, (bounds.height - 8) / 2), textColor);
+        }
+    }
+
+    private final class EditorField {
+        private final String id;
+        private final Consumer<String> onChange;
+        private final boolean integerOnly;
+        private LayoutRect bounds;
+        private String value;
+        private boolean focused;
+        private boolean visible = true;
+        private int caret;
+
+        private EditorField(String id, LayoutRect bounds, String value, boolean integerOnly, Consumer<String> onChange) {
+            this.id = id;
+            this.bounds = bounds;
+            this.value = value == null ? "" : value;
+            this.integerOnly = integerOnly;
+            this.onChange = onChange;
+            this.caret = this.value.length();
+        }
+
+        private boolean contains(double mouseX, double mouseY) {
+            return bounds.contains(mouseX, mouseY);
+        }
+
+        private void draw(GuiGraphics guiGraphics) {
+            guiGraphics.fill(bounds.x, bounds.y, bounds.right(), bounds.bottom(), FIELD_BG);
+            int border = focused ? TEXT_BLUE : FIELD_BORDER;
+            guiGraphics.fill(bounds.x, bounds.y, bounds.right(), bounds.y + 1, border);
+            guiGraphics.fill(bounds.x, bounds.bottom() - 1, bounds.right(), bounds.bottom(), border);
+            guiGraphics.fill(bounds.x, bounds.y, bounds.x + 1, bounds.bottom(), border);
+            guiGraphics.fill(bounds.right() - 1, bounds.y, bounds.right(), bounds.bottom(), border);
+            String visibleText = font.plainSubstrByWidth(value, bounds.width - 12);
+            guiGraphics.drawString(font, visibleText, bounds.x + 6, bounds.y + 6, TEXT_BRIGHT);
+            if (focused && ((System.currentTimeMillis() / 400L) & 1L) == 0L) {
+                int caretWidth = font.width(font.plainSubstrByWidth(value.substring(0, Math.min(caret, value.length())), bounds.width - 12));
+                int caretX = Math.min(bounds.right() - 6, bounds.x + 6 + caretWidth);
+                guiGraphics.fill(caretX, bounds.y + 4, caretX + 1, bounds.bottom() - 4, TEXT_BRIGHT);
+            }
+        }
+
+        private boolean keyPressed(int keyCode, int modifiers) {
+            if (hasControlDown() && keyCode == GLFW.GLFW_KEY_V) {
+                insertText(Minecraft.getInstance().keyboardHandler.getClipboard());
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                if (caret > 0 && !value.isEmpty()) {
+                    value = value.substring(0, caret - 1) + value.substring(caret);
+                    caret--;
+                    onChange.accept(value);
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_DELETE) {
+                if (caret < value.length()) {
+                    value = value.substring(0, caret) + value.substring(caret + 1);
+                    onChange.accept(value);
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_LEFT) {
+                caret = Math.max(0, caret - 1);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_RIGHT) {
+                caret = Math.min(value.length(), caret + 1);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_HOME) {
+                caret = 0;
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_END) {
+                caret = value.length();
+                return true;
+            }
+            return false;
+        }
+
+        private boolean charTyped(char codePoint) {
+            if (codePoint < 32 || codePoint == 127) {
+                return false;
+            }
+            insertText(String.valueOf(codePoint));
+            return true;
+        }
+
+        private void insertText(String rawText) {
+            if (rawText == null || rawText.isEmpty()) {
+                return;
+            }
+            StringBuilder accepted = new StringBuilder(rawText.length());
+            for (int i = 0; i < rawText.length(); i++) {
+                char value = rawText.charAt(i);
+                if (integerOnly) {
+                    if ((value >= '0' && value <= '9') || (value == '-' && caret == 0 && !this.value.startsWith("-"))) {
+                        accepted.append(value);
+                    }
+                } else if (value >= 32 && value != 127) {
+                    accepted.append(value);
+                }
+            }
+            if (accepted.isEmpty()) {
+                return;
+            }
+            this.value = this.value.substring(0, caret) + accepted + this.value.substring(caret);
+            caret += accepted.length();
+            onChange.accept(this.value);
+        }
+    }
+
+    private record ParameterField(String key, int rowIndex, EditorField field) {
+    }
+
+    private static final class LayoutRect {
+        private final int x;
+        private final int y;
+        private final int width;
+        private final int height;
+
+        private LayoutRect(int x, int y, int width, int height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        private int right() {
+            return x + width;
+        }
+
+        private int bottom() {
+            return y + height;
+        }
+
+        private boolean contains(double mouseX, double mouseY) {
+            return mouseX >= x && mouseX <= right() && mouseY >= y && mouseY <= bottom();
+        }
     }
 }
