@@ -33,32 +33,34 @@ import java.util.Map;
 import java.util.Set;
 
 public final class PcgEditorScreen extends Screen {
-    private static final int PANEL_BG = 0xC8141A20;
-    private static final int PANEL_BORDER = 0xFF2D3946;
-    private static final int PANEL_HEADER = 0xE0222A33;
-    private static final int TEXT_BRIGHT = 0xFFF3F7FB;
-    private static final int TEXT_MUTED = 0xFF9BA5B1;
-    private static final int TEXT_GREEN = 0xFF73D585;
-    private static final int TEXT_YELLOW = 0xFFF2C94C;
-    private static final int TEXT_RED = 0xFFF26B6B;
-    private static final int TEXT_BLUE = 0xFF5DA9E9;
-    private static final int TEXT_MAGENTA = 0xFFD56BF3;
-    private static final int TOOL_ACTIVE = 0xCC1E4E7A;
-    private static final int TOOL_DISABLED = 0x88454A53;
+    private static final int PANEL_BG = 0xD40F1318;
+    private static final int PANEL_BORDER = 0xFF2A3139;
+    private static final int PANEL_HEADER = 0xE01B2128;
+    private static final int PANEL_ACCENT = 0x7F202A35;
+    private static final int TEXT_BRIGHT = 0xFFF7FAFD;
+    private static final int TEXT_MUTED = 0xFF95A0AD;
+    private static final int TEXT_GREEN = 0xFF7FDB8B;
+    private static final int TEXT_YELLOW = 0xFFF4C957;
+    private static final int TEXT_RED = 0xFFF17070;
+    private static final int TEXT_BLUE = 0xFF6BB7FF;
+    private static final int TEXT_MAGENTA = 0xFFD784FF;
+    private static final int TOOL_ACTIVE = 0xCC254C7A;
+    private static final int TOOL_DISABLED = 0x882E343B;
 
-    private static final int OUTER_PAD = 12;
-    private static final int TOP_BAR_HEIGHT = 44;
-    private static final int LEFT_BAR_WIDTH = 92;
-    private static final int RIGHT_PANEL_WIDTH = 352;
-    private static final int BOTTOM_BAR_HEIGHT = 96;
-    private static final int GAP = 10;
-    private static final int INSET = 12;
+    private static final int OUTER_PAD = 8;
+    private static final int TOP_BAR_HEIGHT = 46;
+    private static final int LEFT_BAR_WIDTH = 112;
+    private static final int RIGHT_PANEL_WIDTH = 432;
+    private static final int BOTTOM_BAR_HEIGHT = 116;
+    private static final int GAP = 8;
+    private static final int INSET = 10;
     private static final int BUTTON_HEIGHT = 20;
     private static final int FIELD_HEIGHT = 18;
-    private static final int TOOL_BUTTON_HEIGHT = 78;
+    private static final int TOOL_BUTTON_HEIGHT = 86;
     private static final int PARAMETER_ROW_HEIGHT = 28;
     private static final int MODULE_ROW_HEIGHT = 24;
     private static final int LOG_ROW_HEIGHT = 14;
+    private static final int PREVIEW_PANEL_HEIGHT = 236;
 
     private final PcgEditorSession session = PcgEditorSession.get();
     private final List<EditBox> parameterBoxes = new ArrayList<>();
@@ -132,6 +134,11 @@ public final class PcgEditorScreen extends Screen {
         updateActionStates();
     }
 
+    @Override
+    public void added() {
+        session.enterCameraMode(Minecraft.getInstance());
+    }
+
     private void initLayout() {
         topBarX = OUTER_PAD;
         topBarY = OUTER_PAD;
@@ -146,7 +153,7 @@ public final class PcgEditorScreen extends Screen {
         viewportWidth = rightPanelX - GAP - viewportX;
         viewportHeight = bottomBarY - GAP - viewportY;
         rightInnerX = rightPanelX + INSET;
-        inspectorContentTop = rightPanelY + 72;
+        inspectorContentTop = rightPanelY + 34;
         inspectorContentBottom = bottomBarY - GAP;
         parameterViewportTop = 0;
         parameterViewportBottom = 0;
@@ -216,8 +223,8 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         int contentY = computeInspectorContentTop();
-        parameterViewportTop = contentY + 144;
-        parameterViewportBottom = inspectorContentBottom - 188;
+        parameterViewportTop = contentY + 134;
+        parameterViewportBottom = getModulePreviewPanelY() - 132;
         int labelWidth = 102;
         int fieldX = rightInnerX + labelWidth;
         int fieldWidth = RIGHT_PANEL_WIDTH - INSET * 2 - labelWidth - 8;
@@ -379,7 +386,7 @@ public final class PcgEditorScreen extends Screen {
                 .build());
 
         moduleListTop = contentY + 150;
-        moduleListBottom = inspectorContentBottom - 220;
+        moduleListBottom = getModulePreviewPanelY() - 132;
     }
 
     private void initTransformWidgets(int contentY) {
@@ -412,6 +419,12 @@ public final class PcgEditorScreen extends Screen {
         box.setTextColor(TEXT_BRIGHT);
         addRenderableWidget(box);
         return box;
+    }
+
+    private void refreshUi() {
+        if (this.minecraft != null) {
+            rebuildWidgets();
+        }
     }
 
     private int computeInspectorContentTop() {
@@ -451,6 +464,7 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        drawViewportFrame(guiGraphics);
         drawTopToolbar(guiGraphics);
         drawLeftToolbar(guiGraphics);
         drawRightInspector(guiGraphics);
@@ -489,6 +503,14 @@ public final class PcgEditorScreen extends Screen {
     }
 
     @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == 1 && session.isNavigating()) {
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY
                 && mouseX >= rightPanelX && mouseX <= rightPanelX + RIGHT_PANEL_WIDTH
@@ -514,7 +536,11 @@ public final class PcgEditorScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == 256) {
-            onClose();
+            if (session.isNavigating()) {
+                stopNavigation();
+            } else {
+                onClose();
+            }
             return true;
         }
         if (keyCode == 80) {
@@ -560,8 +586,15 @@ public final class PcgEditorScreen extends Screen {
     }
 
     @Override
+    public boolean shouldCloseOnEsc() {
+        return false;
+    }
+
+    @Override
     public void onClose() {
         stopNavigation();
+        sendCommand("blockwright editor exit");
+        session.exitCameraMode(Minecraft.getInstance());
         session.close();
         Minecraft.getInstance().setScreen(null);
     }
@@ -573,17 +606,26 @@ public final class PcgEditorScreen extends Screen {
 
     private void drawTopToolbar(GuiGraphics guiGraphics) {
         drawPanel(guiGraphics, topBarX, topBarY, this.width - OUTER_PAD * 2, TOP_BAR_HEIGHT);
-        guiGraphics.drawString(this.font, "PCG EDITOR", topBarX + 40, topBarY + 14, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "MODE:", topBarX + 150, topBarY + 14, TEXT_MUTED);
-        guiGraphics.drawString(this.font, session.getActiveTool().getTitle(), topBarX + 188, topBarY + 14, TEXT_GREEN);
-        guiGraphics.drawString(this.font, "PACK:", topBarX + 258, topBarY + 14, TEXT_MUTED);
+        guiGraphics.fill(topBarX + 8, topBarY + 8, topBarX + 34, topBarY + TOP_BAR_HEIGHT - 8, PANEL_ACCENT);
+        guiGraphics.drawString(this.font, "BW", topBarX + 14, topBarY + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "PCG EDITOR", topBarX + 44, topBarY + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "MODE:", topBarX + 152, topBarY + 18, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Build", topBarX + 190, topBarY + 18, TEXT_GREEN);
+        guiGraphics.drawString(this.font, "PACK:", topBarX + 252, topBarY + 18, TEXT_MUTED);
         guiGraphics.drawString(this.font,
                 trimToWidth(session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, 120),
-                topBarX + 294, topBarY + 14, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "PRESET:", topBarX + 422, topBarY + 14, TEXT_MUTED);
+                topBarX + 288, topBarY + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "PRESET:", topBarX + 410, topBarY + 18, TEXT_MUTED);
         guiGraphics.drawString(this.font,
                 trimToWidth(session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, 138),
-                topBarX + 470, topBarY + 14, TEXT_BRIGHT);
+                topBarX + 458, topBarY + 18, TEXT_BRIGHT);
+    }
+
+    private void drawViewportFrame(GuiGraphics guiGraphics) {
+        guiGraphics.fill(viewportX - 1, viewportY - 1, viewportX + viewportWidth + 1, viewportY, PANEL_BORDER);
+        guiGraphics.fill(viewportX - 1, viewportY + viewportHeight, viewportX + viewportWidth + 1, viewportY + viewportHeight + 1, PANEL_BORDER);
+        guiGraphics.fill(viewportX - 1, viewportY, viewportX, viewportY + viewportHeight, PANEL_BORDER);
+        guiGraphics.fill(viewportX + viewportWidth, viewportY, viewportX + viewportWidth + 1, viewportY + viewportHeight, PANEL_BORDER);
     }
 
     private void drawLeftToolbar(GuiGraphics guiGraphics) {
@@ -637,11 +679,11 @@ public final class PcgEditorScreen extends Screen {
         y = drawInspectorHeader(guiGraphics, y, "PARAMETERS");
         drawParameterLabels(guiGraphics, y + 2);
 
-        int validationY = inspectorContentBottom - 172;
+        int validationY = getModulePreviewPanelY() - 116;
         validationY = drawInspectorHeader(guiGraphics, validationY, "VALIDATION");
         drawValidationSection(guiGraphics, validationY);
 
-        int actionsY = inspectorContentBottom - 82;
+        int actionsY = getModulePreviewPanelY() - 56;
         actionsY = drawInspectorHeader(guiGraphics, actionsY, "ACTIONS");
         drawActionHints(guiGraphics, actionsY);
     }
@@ -686,7 +728,8 @@ public final class PcgEditorScreen extends Screen {
         drawPanel(guiGraphics, panelX, panelY, panelWidth, panelHeight);
         guiGraphics.drawString(this.font, "MODULE PREVIEW", panelX + INSET, panelY + 10, TEXT_BRIGHT);
         ModuleDefinition module = session.getSelectedModule();
-        ModuleSchematicPreviewRenderer.render(guiGraphics, panelX + 10, panelY + 28, panelWidth - 20, 136,
+        int previewHeight = 132;
+        ModuleSchematicPreviewRenderer.render(guiGraphics, panelX + 10, panelY + 28, panelWidth - 20, previewHeight,
                 module,
                 session.getModuleRotationQuarterTurns(),
                 session.getModulePreviewZoomPercent(),
@@ -694,25 +737,29 @@ public final class PcgEditorScreen extends Screen {
                 session.isShowModuleConnectors(),
                 session.isShowModuleAir());
         if (module == null) {
-            guiGraphics.drawString(this.font, "No module selected.", panelX + INSET, panelY + 172, TEXT_MUTED);
+            guiGraphics.drawString(this.font, "No module selected.", panelX + INSET, panelY + previewHeight + 42, TEXT_MUTED);
             return;
         }
-        guiGraphics.drawString(this.font, trimToWidth(module.id, panelWidth - 20), panelX + INSET, panelY + 172, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Tags: " + trimToWidth(join(module.tags), panelWidth - 20), panelX + INSET, panelY + 184, TEXT_MUTED);
+        int textY = panelY + previewHeight + 42;
+        guiGraphics.drawString(this.font, trimToWidth(module.id, panelWidth - 20), panelX + INSET, textY, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Tags: " + trimToWidth(join(module.tags), panelWidth - 20), panelX + INSET, textY + 12, TEXT_MUTED);
         SpongeSchematicData data = module.schematicData;
         guiGraphics.drawString(this.font, "Size: " + (data == null ? "<none>" : data.getWidth() + " x " + data.getHeight() + " x " + data.getLength()),
-                panelX + INSET, panelY + 196, TEXT_MUTED);
+                panelX + INSET, textY + 24, TEXT_MUTED);
         guiGraphics.drawString(this.font, "Mods: " + (data == null ? "<none>" : join(data.getRequiredMods())),
-                panelX + INSET, panelY + 208, TEXT_MUTED);
+                panelX + INSET, textY + 36, TEXT_MUTED);
         guiGraphics.drawString(this.font, "Rot " + (session.getModuleRotationQuarterTurns() * 90) + "° | "
                         + session.getModulePreviewZoomPercent() + "% | "
                         + onOff(session.isShowModuleBounds()) + " B | " + onOff(session.isShowModuleConnectors()) + " C | " + onOff(session.isShowModuleAir()) + " Air",
-                panelX + INSET, panelY + 224, TEXT_BLUE);
+                panelX + INSET, textY + 52, TEXT_BLUE);
     }
 
     private void drawBottomBar(GuiGraphics guiGraphics) {
         drawPanel(guiGraphics, bottomBarX, bottomBarY, this.width - OUTER_PAD * 2, BOTTOM_BAR_HEIGHT);
-        int sectionWidth = (this.width - OUTER_PAD * 2 - 20) / 5;
+        int totalWidth = this.width - OUTER_PAD * 2 - 24;
+        int sectionWidth = Math.max(180, totalWidth / 6);
+        int warningWidth = Math.max(220, totalWidth / 5);
+        int logWidth = totalWidth - sectionWidth * 3 - warningWidth - 16;
         int x = bottomBarX + 8;
         drawBottomSection(guiGraphics, x, "POSITION", describePosition(), sectionWidth);
         x += sectionWidth + 4;
@@ -720,9 +767,9 @@ public final class PcgEditorScreen extends Screen {
         x += sectionWidth + 4;
         drawBottomSection(guiGraphics, x, "STATS", describePreviewStats(), sectionWidth);
         x += sectionWidth + 4;
-        drawBottomSection(guiGraphics, x, "WARNINGS", getWarningSummary(), sectionWidth);
-        x += sectionWidth + 4;
-        drawMessageLog(guiGraphics, x, sectionWidth + 20);
+        drawBottomSection(guiGraphics, x, "WARNINGS", getWarningSummary(), warningWidth);
+        x += warningWidth + 4;
+        drawMessageLog(guiGraphics, x, logWidth);
     }
 
     private void drawBottomSection(GuiGraphics guiGraphics, int x, String title, List<String> lines, int width) {
@@ -750,15 +797,18 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void drawViewportHints(GuiGraphics guiGraphics) {
-        guiGraphics.fill(viewportX + 18, viewportY + 18, viewportX + 204, viewportY + 70, 0xA0121820);
+        guiGraphics.fill(viewportX + 18, viewportY + 18, viewportX + 214, viewportY + 74, 0xB0141920);
         guiGraphics.drawString(this.font, "Hold RMB to navigate,", viewportX + 28, viewportY + 30, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "WASD to fly,", viewportX + 28, viewportY + 42, TEXT_BRIGHT);
         guiGraphics.drawString(this.font, "LMB to edit.", viewportX + 28, viewportY + 54, TEXT_BRIGHT);
 
-        guiGraphics.fill(viewportX + 18, viewportY + viewportHeight - 86, viewportX + 146, viewportY + viewportHeight - 18, 0xA0121820);
-        guiGraphics.drawString(this.font, "SNAP", viewportX + 28, viewportY + viewportHeight - 78, TEXT_MUTED);
-        guiGraphics.drawString(this.font, session.getSnapStep() + " blocks", viewportX + 28, viewportY + viewportHeight - 62, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Selection: " + session.getSelectionLabel(), viewportX + 28, viewportY + viewportHeight - 42, TEXT_MUTED);
+        int miniPanelTop = viewportY + viewportHeight - 112;
+        guiGraphics.fill(viewportX + 18, miniPanelTop, viewportX + 172, viewportY + viewportHeight - 18, 0xB0141920);
+        guiGraphics.drawString(this.font, "VIEW", viewportX + 28, miniPanelTop + 10, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Editor Overlay", viewportX + 28, miniPanelTop + 24, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "SNAP", viewportX + 28, miniPanelTop + 44, TEXT_MUTED);
+        guiGraphics.drawString(this.font, session.getSnapStep() + " blocks", viewportX + 28, miniPanelTop + 58, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Selection: " + session.getSelectionLabel(), viewportX + 28, miniPanelTop + 78, TEXT_MUTED);
 
         PcgEditorPreviewState previewState = session.getPreviewState();
         if (previewState == PcgEditorPreviewState.DIRTY) {
@@ -1051,7 +1101,7 @@ public final class PcgEditorScreen extends Screen {
             selectBestObject();
         }
         session.log(PcgEditorLogEntry.Severity.INFO, "Active tool: " + tool.getTitle() + ".");
-        Minecraft.getInstance().setScreen(new PcgEditorScreen());
+        refreshUi();
     }
 
     private void cyclePack(int delta) {
@@ -1066,7 +1116,7 @@ public final class PcgEditorScreen extends Screen {
         session.setSelectedPresetId(null);
         session.setSelectedModuleId(null);
         session.markDirty("Pack selection changed.");
-        Minecraft.getInstance().setScreen(new PcgEditorScreen());
+        refreshUi();
     }
 
     private void cyclePreset(int delta) {
@@ -1080,7 +1130,7 @@ public final class PcgEditorScreen extends Screen {
         int nextIndex = Math.floorMod(currentIndex + delta, presets.size());
         session.setSelectedPresetId(presets.get(nextIndex).id);
         session.markDirty("Preset selection changed.");
-        Minecraft.getInstance().setScreen(new PcgEditorScreen());
+        refreshUi();
     }
 
     private void reloadPacks() {
@@ -1088,7 +1138,7 @@ public final class PcgEditorScreen extends Screen {
         session.markDirty("Preset packs reloaded.");
         session.log(PcgEditorLogEntry.Severity.SUCCESS, "Reloaded " + Blockwright.getPackManager().getLoadedPackCount() + " pack(s).");
         sendCommand("blockwright reload");
-        Minecraft.getInstance().setScreen(new PcgEditorScreen());
+        refreshUi();
     }
 
     private void generatePreview(boolean regenerate) {
@@ -1145,11 +1195,11 @@ public final class PcgEditorScreen extends Screen {
         int blockEntities = countPreviewBlockEntities(previewPlan);
         Minecraft.getInstance().setScreen(new ConfirmScreen(confirmed -> {
             if (confirmed) {
-                Minecraft.getInstance().setScreen(new PcgEditorScreen());
+                Minecraft.getInstance().setScreen(this);
                 runAction("blockwright bake", PcgEditorLogEntry.Severity.SUCCESS, "Bake requested.");
                 return;
             }
-            Minecraft.getInstance().setScreen(new PcgEditorScreen());
+            Minecraft.getInstance().setScreen(this);
             session.log(PcgEditorLogEntry.Severity.INFO, "Bake cancelled.");
         }, Component.literal("Confirm Bake"),
                 Component.literal("Bake " + previewPlan.getPlannedBlocks().size() + " blocks across " + countPreviewChunks(previewPlan)
@@ -1178,7 +1228,7 @@ public final class PcgEditorScreen extends Screen {
             default -> session.log(PcgEditorLogEntry.Severity.DEBUG, "Nothing is selected.");
         }
         session.syncSelectionDefaults();
-        Minecraft.getInstance().setScreen(new PcgEditorScreen());
+        refreshUi();
     }
 
     private void focusSelection() {
@@ -1221,7 +1271,7 @@ public final class PcgEditorScreen extends Screen {
             runAction("blockwright region set " + x + " " + y + " " + z + " " + x2 + " " + y2 + " " + z2,
                     PcgEditorLogEntry.Severity.INFO, "Moved Box Region_01.");
             session.setSelection(PcgEditorSelection.REGION);
-            Minecraft.getInstance().setScreen(new PcgEditorScreen());
+            refreshUi();
             return;
         }
 
@@ -1241,7 +1291,7 @@ public final class PcgEditorScreen extends Screen {
             session.setSelection(PcgEditorSelection.SPLINE_POINT);
             session.setSelectedSplinePointIndex(pointIndex);
             session.log(PcgEditorLogEntry.Severity.INFO, "Moved spline point #" + pointIndex + ".");
-            Minecraft.getInstance().setScreen(new PcgEditorScreen());
+            refreshUi();
         }
     }
 
@@ -1461,19 +1511,19 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private int getModulePreviewPanelX() {
-        return rightPanelX + RIGHT_PANEL_WIDTH - 244;
+        return rightPanelX + INSET;
     }
 
     private int getModulePreviewPanelY() {
-        return viewportY + 248;
+        return inspectorContentBottom - PREVIEW_PANEL_HEIGHT;
     }
 
     private int getModulePreviewPanelWidth() {
-        return 228;
+        return RIGHT_PANEL_WIDTH - INSET * 2;
     }
 
     private int getModulePreviewPanelHeight() {
-        return 250;
+        return PREVIEW_PANEL_HEIGHT - 8;
     }
 
     private String sanitizeModuleId(String rawValue) {

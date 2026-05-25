@@ -64,9 +64,9 @@ public final class BlockwrightSelectionRenderer {
                     poseStack,
                     lineConsumer,
                     regionSelection.toAabb().inflate(REGION_PADDING),
-                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.36F : 0.24F,
-                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.98F : 0.95F,
-                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.92F : 0.38F,
+                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.52F : 0.34F,
+                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.92F : 0.82F,
+                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.98F : 0.92F,
                     1.0F
             );
         }
@@ -120,9 +120,9 @@ public final class BlockwrightSelectionRenderer {
             green = 0.84F;
             blue = 0.34F;
         } else {
-            red = 0.45F;
-            green = 0.88F;
-            blue = 0.52F;
+            red = 0.76F;
+            green = 0.92F;
+            blue = 0.98F;
         }
         LevelRenderer.renderLineBox(poseStack, lineConsumer, plan.getBounds().inflate(REGION_PADDING), red, green, blue, 1.0F);
     }
@@ -199,11 +199,11 @@ public final class BlockwrightSelectionRenderer {
         normal.normalize();
         PoseStack.Pose pose = poseStack.last();
         lineConsumer.vertex(pose.pose(), (float) fromCenter.x, (float) fromCenter.y, (float) fromCenter.z)
-                .color(0.96F, 0.68F, 0.24F, 1.0F)
+                .color(0.95F, 0.46F, 0.98F, 1.0F)
                 .normal(pose.normal(), normal.x(), normal.y(), normal.z())
                 .endVertex();
         lineConsumer.vertex(pose.pose(), (float) toCenter.x, (float) toCenter.y, (float) toCenter.z)
-                .color(0.96F, 0.68F, 0.24F, 1.0F)
+                .color(0.95F, 0.46F, 0.98F, 1.0F)
                 .normal(pose.normal(), normal.x(), normal.y(), normal.z())
                 .endVertex();
     }
