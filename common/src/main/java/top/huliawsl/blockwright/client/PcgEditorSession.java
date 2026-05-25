@@ -20,8 +20,8 @@ import java.util.List;
 
 public final class PcgEditorSession {
     private static final int MAX_LOG_ENTRIES = 6;
-    private static final PcgEditorSession INSTANCE = new PcgEditorSession();
     private static final String[] MODULE_KIND_FILTERS = {"all", "static_schem", "procedural", "compound"};
+    private static final PcgEditorSession INSTANCE = new PcgEditorSession();
 
     private final Deque<PcgEditorLogEntry> logEntries = new ArrayDeque<>();
     private PcgEditorTool activeTool = PcgEditorTool.BOX_REGION;
