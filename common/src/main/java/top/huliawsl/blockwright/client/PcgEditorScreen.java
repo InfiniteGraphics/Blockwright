@@ -60,7 +60,7 @@ public final class PcgEditorScreen extends Screen {
     private static final int TOP_BAR_HEIGHT = 48;
     private static final int LEFT_BAR_WIDTH = 126;
     private static final int RIGHT_PANEL_WIDTH = 720;
-    private static final int BOTTOM_BAR_HEIGHT = 128;
+    private static final int BOTTOM_BAR_HEIGHT = 104;
     private static final int TOP_BUTTON_HEIGHT = 22;
     private static final int TOOL_BUTTON_HEIGHT = 96;
     private static final int FIELD_HEIGHT = 20;
@@ -456,15 +456,15 @@ public final class PcgEditorScreen extends Screen {
         bottomBar = new LayoutRect(OUTER_PAD, uiHeight - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
         int actualLeftWidth = clamp(uiWidth / 14, 112, 138);
         int maxRightWidth = Math.max(560, uiWidth / 2);
-        int actualRightWidth = clamp(uiWidth / 3, 560, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
-        int maxAllowedRight = Math.max(500, rootWidth - actualLeftWidth - 440 - GAP * 2);
+        int actualRightWidth = clamp(uiWidth / 4, 480, Math.min(640, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth)));
+        int maxAllowedRight = Math.max(460, rootWidth - actualLeftWidth - 520 - GAP * 2);
         actualRightWidth = Math.min(actualRightWidth, maxAllowedRight);
         leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         rightPanel = new LayoutRect(uiWidth - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
                 actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
                 rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
-        int previewWidth = clamp(rightPanel.width / 3, 228, 300);
+        int previewWidth = clamp(rightPanel.width / 3, 200, 260);
         detailsPanel = new LayoutRect(rightPanel.x, rightPanel.y, rightPanel.width - previewWidth - GAP, rightPanel.height);
         previewDockPanel = new LayoutRect(detailsPanel.right() + GAP, rightPanel.y, previewWidth, rightPanel.height);
         modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
@@ -508,7 +508,7 @@ public final class PcgEditorScreen extends Screen {
         int buttonWidth = leftBar.width - 16;
         int x = leftBar.x + 8;
         int y = leftBar.y + 8;
-        int gap = 6;
+        int gap = 4;
         int toolHeight = computeToolButtonHeight();
         for (PcgEditorTool tool : PcgEditorTool.values()) {
             boolean disabled = tool == PcgEditorTool.PAINT_MASK;
@@ -1963,9 +1963,9 @@ public final class PcgEditorScreen extends Screen {
 
     private int computeToolButtonHeight() {
         int toolCount = PcgEditorTool.values().length;
-        int gap = 6;
+        int gap = 4;
         int available = leftBar.height - 16 - (toolCount - 1) * gap;
-        return clamp(available / Math.max(1, toolCount), 52, 76);
+        return clamp(available / Math.max(1, toolCount), 44, 62);
     }
 
     private int computeTopClusterWidth(int actionStart) {
