@@ -45,7 +45,8 @@ public final class BlockwrightMainScreen extends Screen {
     private static final int PARAMETER_ROW_HEIGHT = 28;
     private static final int ISSUE_ROW_HEIGHT = 12;
 
-    private static int selectedPresetIndex;
+    private static int selectedPackIndex;
+    private static String selectedPresetId;
 
     private final List<EditBox> parameterBoxes = new ArrayList<>();
     private final List<String> parameterKeys = new ArrayList<>();
@@ -102,14 +103,21 @@ public final class BlockwrightMainScreen extends Screen {
         initLayout();
 
         int buttonRowY = topY + PANEL_INSET + 14;
-        int presetArrowY = presetInfoTop - 8;
+        int packArrowY = presetInfoTop - 4;
+        int presetArrowY = presetInfoTop + 8;
         int actionRowWidth = (rightWidth - PANEL_INSET * 2 - PANEL_GAP * 2) / 3;
 
+        addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePack(-1))
+                .bounds(middleInnerX, packArrowY, 20, BUTTON_HEIGHT)
+                .build());
+        addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePack(1))
+                .bounds(middleX + middleWidth - PANEL_INSET - 20, packArrowY, 20, BUTTON_HEIGHT)
+                .build());
         addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePreset(-1))
-                .bounds(middleInnerX, presetArrowY, 24, BUTTON_HEIGHT)
+                .bounds(middleInnerX, presetArrowY, 20, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal(">"), button -> cyclePreset(1))
-                .bounds(middleX + middleWidth - PANEL_INSET - 24, presetArrowY, 24, BUTTON_HEIGHT)
+                .bounds(middleX + middleWidth - PANEL_INSET - 20, presetArrowY, 20, BUTTON_HEIGHT)
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Reload"), button -> reloadPacks())
                 .bounds(rightInnerX, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
@@ -141,6 +149,9 @@ public final class BlockwrightMainScreen extends Screen {
                 .build());
         addRenderableWidget(Button.builder(Component.literal("Clear"), button -> sendCommand("blockwright spline clear"))
                 .bounds(leftInnerX + (splineButtonWidth + PANEL_GAP) * 2, splineButtonsY, splineButtonWidth, BUTTON_HEIGHT)
+                .build());
+        addRenderableWidget(Button.builder(Component.literal("Drop Last"), button -> removeLastSplinePoint())
+                .bounds(leftInnerX, splineButtonsY + BUTTON_HEIGHT + ROW_GAP, leftWidth - PANEL_INSET * 2, BUTTON_HEIGHT)
                 .build());
 
         PresetDefinition preset = getSelectedPreset();
@@ -204,12 +215,12 @@ public final class BlockwrightMainScreen extends Screen {
         guiGraphics.drawString(this.font, "Status", rightX + PANEL_INSET, topY + 8, TEXT_BRIGHT);
 
         guiGraphics.drawString(this.font,
-                trimToWidth(selectedPack == null ? "Pack: <none>" : "Pack: " + selectedPack.getMetadata().id, middleWidth - PANEL_INSET * 2 - 64),
-                middleInnerX + 32, presetInfoTop, TEXT_MUTED);
+                trimToWidth(selectedPack == null ? "Pack: <none>" : "Pack: " + selectedPack.getMetadata().id, middleWidth - PANEL_INSET * 2 - 52),
+                middleInnerX + 26, presetInfoTop, TEXT_MUTED);
         guiGraphics.drawString(this.font,
-                trimToWidth(preset == null ? "Preset: <none>" : "Preset: " + preset.id, middleWidth - PANEL_INSET * 2 - 64),
-                middleInnerX + 32, presetInfoTop + 12, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleInnerX, presetInfoTop + 24, TEXT_MUTED);
+                trimToWidth(preset == null ? "Preset: <none>" : "Preset: " + preset.id, middleWidth - PANEL_INSET * 2 - 52),
+                middleInnerX + 26, presetInfoTop + 12, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Mode: " + describePresetMode(preset), middleInnerX, presetInfoTop + 28, TEXT_MUTED);
 
         drawRegionSection(guiGraphics, leftInnerX, regionSectionTop, regionSelection);
         drawSplineSection(guiGraphics, leftInnerX, splineSectionTop, splineSelection);
@@ -285,11 +296,11 @@ public final class BlockwrightMainScreen extends Screen {
         regionInfoY = regionButtonsY + BUTTON_HEIGHT * 2 + ROW_GAP + 8;
         splineSectionTop = regionInfoY + 36;
         inputHintY = contentBottom - 24;
-        splineButtonsY = Math.max(splineSectionTop + 68, inputHintY - BUTTON_HEIGHT - 10);
+        splineButtonsY = Math.max(splineSectionTop + 68, inputHintY - BUTTON_HEIGHT * 2 - ROW_GAP - 10);
         maxSplinePreviewLines = Math.max(1, (splineButtonsY - (splineSectionTop + 40)) / 12);
 
         presetInfoTop = topY + PANEL_INSET + 20;
-        parameterHeaderY = presetInfoTop + 38;
+        parameterHeaderY = presetInfoTop + 42;
         parameterLabelWidth = clamp(middleWidth / 3, 74, 112);
         parameterFieldX = middleInnerX + parameterLabelWidth + 10;
         parameterFieldWidth = Math.max(96, middleWidth - PANEL_INSET * 2 - parameterLabelWidth - 10);
@@ -489,11 +500,25 @@ public final class BlockwrightMainScreen extends Screen {
     }
 
     private void cyclePreset(int delta) {
-        List<PresetDefinition> presets = Blockwright.getPackManager().getAllPresets();
+        LoadedPack pack = getSelectedPack();
+        List<PresetDefinition> presets = getPackPresets(pack);
         if (presets.isEmpty()) {
             return;
         }
-        selectedPresetIndex = Math.floorMod(selectedPresetIndex + delta, presets.size());
+        int currentIndex = selectedPresetId == null ? 0 : findPresetIndex(presets, selectedPresetId);
+        int nextIndex = Math.floorMod(currentIndex + delta, presets.size());
+        selectedPresetId = presets.get(nextIndex).id;
+        ClientPreviewState.markStale();
+        Minecraft.getInstance().setScreen(new BlockwrightMainScreen());
+    }
+
+    private void cyclePack(int delta) {
+        List<LoadedPack> packs = Blockwright.getPackManager().getLoadedPacks();
+        if (packs.isEmpty()) {
+            return;
+        }
+        selectedPackIndex = Math.floorMod(selectedPackIndex + delta, packs.size());
+        selectedPresetId = null;
         ClientPreviewState.markStale();
         Minecraft.getInstance().setScreen(new BlockwrightMainScreen());
     }
@@ -511,24 +536,31 @@ public final class BlockwrightMainScreen extends Screen {
     }
 
     private LoadedPack getSelectedPack() {
-        PresetDefinition preset = getSelectedPreset();
-        if (preset == null) {
+        List<LoadedPack> packs = Blockwright.getPackManager().getLoadedPacks();
+        if (packs.isEmpty()) {
             return null;
         }
-        return Blockwright.getPackManager().findPreset(preset.id)
-                .map(top.huliawsl.blockwright.pack.BlockwrightPackManager.PresetLookup::pack)
-                .orElse(null);
+        if (selectedPackIndex >= packs.size()) {
+            selectedPackIndex = 0;
+        }
+        return packs.get(selectedPackIndex);
     }
 
     private PresetDefinition getSelectedPreset() {
-        List<PresetDefinition> presets = Blockwright.getPackManager().getAllPresets();
+        List<PresetDefinition> presets = getPackPresets(getSelectedPack());
         if (presets.isEmpty()) {
+            selectedPresetId = null;
             return null;
         }
-        if (selectedPresetIndex >= presets.size()) {
-            selectedPresetIndex = 0;
+        if (selectedPresetId != null) {
+            for (PresetDefinition preset : presets) {
+                if (selectedPresetId.equals(preset.id)) {
+                    return preset;
+                }
+            }
         }
-        return presets.get(selectedPresetIndex);
+        selectedPresetId = presets.get(0).id;
+        return presets.get(0);
     }
 
     private PreviewPlan getVisiblePreviewPlan() {
@@ -589,6 +621,30 @@ public final class BlockwrightMainScreen extends Screen {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private List<PresetDefinition> getPackPresets(LoadedPack pack) {
+        if (pack == null) {
+            return List.of();
+        }
+        return new ArrayList<>(pack.getPresets().values());
+    }
+
+    private int findPresetIndex(List<PresetDefinition> presets, String presetId) {
+        for (int i = 0; i < presets.size(); i++) {
+            if (presetId.equals(presets.get(i).id)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private void removeLastSplinePoint() {
+        int lastIndex = ClientSelectionState.getSplineSelection().getPoints().size() - 1;
+        if (lastIndex < 0) {
+            return;
+        }
+        sendCommand("blockwright spline remove " + lastIndex);
     }
 
     private static String formatPos(BlockPos pos) {
