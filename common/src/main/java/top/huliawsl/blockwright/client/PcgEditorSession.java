@@ -23,6 +23,7 @@ import java.util.List;
 public final class PcgEditorSession {
     private static final int MAX_LOG_ENTRIES = 6;
     private static final String[] MODULE_KIND_FILTERS = {"all", "static_schem", "procedural", "compound"};
+    private static final String[] MODULE_MOD_STATUS_FILTERS = {"all", "available", "missing"};
     private static final PcgEditorSession INSTANCE = new PcgEditorSession();
 
     private final Deque<PcgEditorLogEntry> logEntries = new ArrayDeque<>();
@@ -37,7 +38,10 @@ public final class PcgEditorSession {
     private String selectedModuleId;
     private String moduleSearchQuery = "";
     private String moduleTagQuery = "";
+    private String moduleStyleQuery = "";
+    private String moduleCategoryQuery = "";
     private String moduleKindFilter = MODULE_KIND_FILTERS[0];
+    private String moduleModStatusFilter = MODULE_MOD_STATUS_FILTERS[0];
     private String exportModuleId = "exported_module";
     private int moduleRotationQuarterTurns;
     private int modulePreviewZoomPercent = 100;
@@ -221,6 +225,36 @@ public final class PcgEditorSession {
             }
         }
         moduleKindFilter = MODULE_KIND_FILTERS[0];
+    }
+
+    public String getModuleStyleQuery() {
+        return moduleStyleQuery;
+    }
+
+    public void setModuleStyleQuery(String moduleStyleQuery) {
+        this.moduleStyleQuery = moduleStyleQuery == null ? "" : moduleStyleQuery;
+    }
+
+    public String getModuleCategoryQuery() {
+        return moduleCategoryQuery;
+    }
+
+    public void setModuleCategoryQuery(String moduleCategoryQuery) {
+        this.moduleCategoryQuery = moduleCategoryQuery == null ? "" : moduleCategoryQuery;
+    }
+
+    public String getModuleModStatusFilter() {
+        return moduleModStatusFilter;
+    }
+
+    public void cycleModuleModStatusFilter() {
+        for (int i = 0; i < MODULE_MOD_STATUS_FILTERS.length; i++) {
+            if (MODULE_MOD_STATUS_FILTERS[i].equals(moduleModStatusFilter)) {
+                moduleModStatusFilter = MODULE_MOD_STATUS_FILTERS[(i + 1) % MODULE_MOD_STATUS_FILTERS.length];
+                return;
+            }
+        }
+        moduleModStatusFilter = MODULE_MOD_STATUS_FILTERS[0];
     }
 
     public String getExportModuleId() {

@@ -6,6 +6,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
+import dev.architectury.platform.Platform;
 import org.lwjgl.glfw.GLFW;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.config.BlockwrightConfig;
@@ -97,6 +98,7 @@ public final class PcgEditorScreen extends Screen {
     private EditorButton moduleConnectorsButton;
     private EditorButton moduleAirButton;
     private EditorButton moduleExportButton;
+    private EditorButton moduleModStatusButton;
     private EditorButton focusButton;
     private EditorButton deleteButton;
     private EditorButton clearPreviewButton;
@@ -106,6 +108,8 @@ public final class PcgEditorScreen extends Screen {
     private EditorField transformXField;
     private EditorField transformYField;
     private EditorField transformZField;
+    private EditorField moduleStyleField;
+    private EditorField moduleCategoryField;
     private EditorField moduleExportField;
 
     private int parameterScroll;
@@ -351,6 +355,7 @@ public final class PcgEditorScreen extends Screen {
         moduleConnectorsButton = null;
         moduleAirButton = null;
         moduleExportButton = null;
+        moduleModStatusButton = null;
         focusButton = null;
         deleteButton = null;
         clearPreviewButton = null;
@@ -358,6 +363,8 @@ public final class PcgEditorScreen extends Screen {
         transformXField = null;
         transformYField = null;
         transformZField = null;
+        moduleStyleField = null;
+        moduleCategoryField = null;
         moduleExportField = null;
         focusedField = null;
 
@@ -518,12 +525,28 @@ public final class PcgEditorScreen extends Screen {
                     refreshVisibleModules();
                     rebuildUi();
                 });
-        moduleExportField = addField("module_export", innerX, y + 104, innerWidth, FIELD_HEIGHT,
+        moduleStyleField = addField("module_style", innerX, y + 104, innerWidth, FIELD_HEIGHT,
+                session.getModuleStyleQuery(), false, value -> {
+                    session.setModuleStyleQuery(value);
+                    refreshVisibleModules();
+                });
+        moduleCategoryField = addField("module_category", innerX, y + 132, innerWidth, FIELD_HEIGHT,
+                session.getModuleCategoryQuery(), false, value -> {
+                    session.setModuleCategoryQuery(value);
+                    refreshVisibleModules();
+                });
+        moduleModStatusButton = addButton("module_mod_status", innerX, y + 160, innerWidth, TOP_BUTTON_HEIGHT, moduleModStatusLabel(),
+                false, false, () -> {
+                    session.cycleModuleModStatusFilter();
+                    refreshVisibleModules();
+                    rebuildUi();
+                });
+        moduleExportField = addField("module_export", innerX, y + 190, innerWidth, FIELD_HEIGHT,
                 session.getExportModuleId(), false, session::setExportModuleId);
-        moduleExportButton = addButton("module_export_button", innerX, y + 132, innerWidth, TOP_BUTTON_HEIGHT, "Export Region",
+        moduleExportButton = addButton("module_export_button", innerX, y + 218, innerWidth, TOP_BUTTON_HEIGHT, "Export Region",
                 false, false, this::exportRegionAsModule);
 
-        int listTop = y + 172;
+        int listTop = y + 258;
         int listBottom = modulePreviewPanel.y - 14;
         moduleListViewport = new LayoutRect(innerX, listTop, innerWidth, Math.max(96, listBottom - listTop));
         refreshVisibleModules();
@@ -690,7 +713,8 @@ public final class PcgEditorScreen extends Screen {
         y = drawSectionHeader(guiGraphics, y, "MODULE LIBRARY");
         LoadedPack pack = session.getSelectedPack();
         drawLabelValue(guiGraphics, innerX, y, innerWidth, "Pack", pack == null ? "<none>" : pack.getMetadata().id, TEXT_BRIGHT);
-        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Filter", session.getModuleKindFilter(), TEXT_BLUE);
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Kind", session.getModuleKindFilter(), TEXT_BLUE);
+        drawLabelValue(guiGraphics, innerX, y + 32, innerWidth, "Mods", session.getModuleModStatusFilter(), TEXT_BLUE);
         if (moduleListViewport != null) {
             int headerY = moduleListViewport.y - 18;
             guiGraphics.drawString(this.font, "Modules", innerX, headerY, TEXT_BRIGHT);
@@ -718,10 +742,17 @@ public final class PcgEditorScreen extends Screen {
                 modulePreviewPanel.x + 10, textY + 12, TEXT_MUTED);
         guiGraphics.drawString(this.font, "Footprint " + (data == null ? "<none>" : data.getWidth() + " x " + data.getLength()),
                 modulePreviewPanel.x + 10, textY + 24, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Tags " + trimToWidth(join(module.tags), modulePreviewPanel.width - 70),
+        guiGraphics.drawString(this.font, "Style " + trimToWidth(safe(module.style), modulePreviewPanel.width - 70),
                 modulePreviewPanel.x + 10, textY + 36, TEXT_MUTED);
-        guiGraphics.drawString(this.font, "Mods " + trimToWidth(data == null ? "<none>" : join(data.getRequiredMods()), modulePreviewPanel.width - 70),
+        guiGraphics.drawString(this.font, "Category " + trimToWidth(safe(module.category), modulePreviewPanel.width - 88),
                 modulePreviewPanel.x + 10, textY + 48, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Tags " + trimToWidth(join(module.tags), modulePreviewPanel.width - 70),
+                modulePreviewPanel.x + 10, textY + 60, TEXT_MUTED);
+        guiGraphics.drawString(this.font, "Mods " + trimToWidth(data == null ? "<none>" : join(data.getRequiredMods()), modulePreviewPanel.width - 70),
+                modulePreviewPanel.x + 10, textY + 72, moduleHasMissingMods(module) ? TEXT_RED : TEXT_MUTED);
+        List<ValidationIssue> issues = moduleValidationIssues(session.getSelectedPack(), module);
+        String validationSummary = issues.isEmpty() ? "Validation OK" : "Validation " + issues.size() + " issue(s)";
+        guiGraphics.drawString(this.font, validationSummary, modulePreviewPanel.x + 10, textY + 84, issues.isEmpty() ? TEXT_GREEN : TEXT_YELLOW);
     }
 
     private void drawBottomBar(GuiGraphics guiGraphics) {
@@ -1082,6 +1113,11 @@ public final class PcgEditorScreen extends Screen {
                 + "|" + session.getSelectedSplinePointIndex()
                 + "|" + session.getPreviewState().name()
                 + "|" + session.getModuleKindFilter()
+                + "|" + session.getModuleModStatusFilter()
+                + "|" + session.getModuleStyleQuery()
+                + "|" + session.getModuleCategoryQuery()
+                + "|" + session.getModuleSearchQuery()
+                + "|" + session.getModuleTagQuery()
                 + "|" + this.width + "x" + this.height;
     }
 
@@ -1498,6 +1534,15 @@ public final class PcgEditorScreen extends Screen {
             if (!kindFilter.isBlank() && !"all".equals(kindFilter) && !kindFilter.equals(normalize(module.moduleKind))) {
                 continue;
             }
+            if (!moduleMatchesStyle(module)) {
+                continue;
+            }
+            if (!moduleMatchesCategory(module)) {
+                continue;
+            }
+            if (!moduleMatchesModStatus(module)) {
+                continue;
+            }
             modules.add(module);
         }
         return modules;
@@ -1517,6 +1562,64 @@ public final class PcgEditorScreen extends Screen {
             }
         }
         return false;
+    }
+
+    private boolean moduleMatchesStyle(ModuleDefinition module) {
+        String styleQuery = normalize(session.getModuleStyleQuery());
+        return styleQuery.isBlank() || normalize(module.style).contains(styleQuery);
+    }
+
+    private boolean moduleMatchesCategory(ModuleDefinition module) {
+        String categoryQuery = normalize(session.getModuleCategoryQuery());
+        return categoryQuery.isBlank() || normalize(module.category).contains(categoryQuery);
+    }
+
+    private boolean moduleMatchesModStatus(ModuleDefinition module) {
+        String filter = normalize(session.getModuleModStatusFilter());
+        if (filter.isBlank() || "all".equals(filter)) {
+            return true;
+        }
+        boolean missingMods = moduleHasMissingMods(module);
+        if ("missing".equals(filter)) {
+            return missingMods;
+        }
+        if ("available".equals(filter)) {
+            return !missingMods;
+        }
+        return true;
+    }
+
+    private boolean moduleHasMissingMods(ModuleDefinition module) {
+        if (module == null || module.schematicData == null) {
+            return false;
+        }
+        for (String modId : module.schematicData.getRequiredMods()) {
+            if (!modId.isBlank() && !"minecraft".equals(modId) && !Platform.isModLoaded(modId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<ValidationIssue> moduleValidationIssues(LoadedPack pack, ModuleDefinition module) {
+        List<ValidationIssue> issues = new ArrayList<>();
+        if (pack == null || module == null) {
+            return issues;
+        }
+        for (ValidationIssue issue : pack.getValidationReport().getIssues()) {
+            if (issue.getLocation().equals(module.id)) {
+                issues.add(issue);
+                continue;
+            }
+            if (module.sourcePath != null && issue.getLocation().contains(module.sourcePath.getFileName().toString())) {
+                issues.add(issue);
+                continue;
+            }
+            if (module.schematic != null && issue.getMessage().contains(module.schematic)) {
+                issues.add(issue);
+            }
+        }
+        return issues;
     }
 
     private List<String> describePosition() {
@@ -1640,6 +1743,10 @@ public final class PcgEditorScreen extends Screen {
 
     private String moduleKindLabel() {
         return "Kind: " + safe(session.getModuleKindFilter());
+    }
+
+    private String moduleModStatusLabel() {
+        return "Mods: " + safe(session.getModuleModStatusFilter());
     }
 
     private boolean isTransformSelection() {
