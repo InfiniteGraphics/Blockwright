@@ -26,7 +26,7 @@ public final class ModuleSchematicPreviewRenderer {
     }
 
     public static void render(GuiGraphics guiGraphics, int x, int y, int width, int height,
-                              ModuleDefinition module, int rotationQuarterTurns,
+                              ModuleDefinition module, int rotationQuarterTurns, int zoomPercent,
                               boolean showBounds, boolean showConnectors, boolean showAir) {
         guiGraphics.fill(x, y, x + width, y + height, 0x9010151A);
         guiGraphics.fill(x, y, x + width, y + 1, 0xFF39424D);
@@ -48,6 +48,7 @@ public final class ModuleSchematicPreviewRenderer {
 
         float size = Math.max(schematic.getWidth(), Math.max(schematic.getHeight(), schematic.getLength()));
         float scale = Math.min(width, height) / Math.max(4.0F, size * 2.8F);
+        scale *= Math.max(0.5F, zoomPercent / 100.0F);
         float centerX = x + width / 2.0F;
         float centerY = y + height - 12.0F;
 

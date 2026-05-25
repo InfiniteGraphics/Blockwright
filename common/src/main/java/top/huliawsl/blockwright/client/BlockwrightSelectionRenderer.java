@@ -24,6 +24,7 @@ public final class BlockwrightSelectionRenderer {
     private static final double CORNER_PADDING = 0.02D;
     private static final double REGION_PADDING = 0.002D;
     private static final double SPLINE_POINT_PADDING = 0.12D;
+    private static final double GIZMO_LENGTH = 2.0D;
 
     private BlockwrightSelectionRenderer() {
     }
@@ -37,6 +38,7 @@ public final class BlockwrightSelectionRenderer {
         BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
         SplineSelection splineSelection = ClientSelectionState.getSplineSelection();
         PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
+        PcgEditorSession editorSession = PcgEditorSession.get();
         if (regionSelection.getPos1() == null && regionSelection.getPos2() == null
                 && splineSelection.getPoints().isEmpty()
                 && (previewPlan == null || previewPlan.getPlannedBlocks().isEmpty())) {
@@ -53,17 +55,18 @@ public final class BlockwrightSelectionRenderer {
         VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
         renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
         renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
-        renderSpline(lineConsumer, poseStack, splineSelection);
+        renderSpline(lineConsumer, poseStack, splineSelection, editorSession);
         renderPreviewBounds(lineConsumer, poseStack, previewPlan);
+        renderTransformGizmo(lineConsumer, poseStack, editorSession);
 
         if (regionSelection.isComplete()) {
             LevelRenderer.renderLineBox(
                     poseStack,
                     lineConsumer,
                     regionSelection.toAabb().inflate(REGION_PADDING),
-                    0.24F,
-                    0.95F,
-                    0.38F,
+                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.36F : 0.24F,
+                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.98F : 0.95F,
+                    editorSession.getSelection() == PcgEditorSelection.REGION ? 0.92F : 0.38F,
                     1.0F
             );
         }
@@ -124,14 +127,16 @@ public final class BlockwrightSelectionRenderer {
         LevelRenderer.renderLineBox(poseStack, lineConsumer, plan.getBounds().inflate(REGION_PADDING), red, green, blue, 1.0F);
     }
 
-    private static void renderSpline(VertexConsumer lineConsumer, PoseStack poseStack, SplineSelection splineSelection) {
+    private static void renderSpline(VertexConsumer lineConsumer, PoseStack poseStack, SplineSelection splineSelection, PcgEditorSession session) {
         if (splineSelection.getPoints().isEmpty()) {
             return;
         }
 
         BlockPos previous = null;
         for (BlockPos point : splineSelection.getPoints()) {
-            renderSplinePoint(lineConsumer, poseStack, point);
+            boolean selected = session.getSelection() == PcgEditorSelection.SPLINE_POINT
+                    && point.equals(session.getSelectedSplinePoint());
+            renderSplinePoint(lineConsumer, poseStack, point, selected);
             if (previous != null) {
                 renderSplineSegment(lineConsumer, poseStack, previous, point);
             }
@@ -161,7 +166,7 @@ public final class BlockwrightSelectionRenderer {
         );
     }
 
-    private static void renderSplinePoint(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos) {
+    private static void renderSplinePoint(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, boolean selected) {
         LevelRenderer.renderLineBox(
                 poseStack,
                 lineConsumer,
@@ -173,9 +178,9 @@ public final class BlockwrightSelectionRenderer {
                         pos.getY() + 1 - SPLINE_POINT_PADDING,
                         pos.getZ() + 1 - SPLINE_POINT_PADDING
                 ),
-                0.96F,
-                0.38F,
-                0.22F,
+                selected ? 0.98F : 0.96F,
+                selected ? 0.88F : 0.38F,
+                selected ? 0.98F : 0.22F,
                 1.0F
         );
     }
@@ -199,6 +204,35 @@ public final class BlockwrightSelectionRenderer {
                 .endVertex();
         lineConsumer.vertex(pose.pose(), (float) toCenter.x, (float) toCenter.y, (float) toCenter.z)
                 .color(0.96F, 0.68F, 0.24F, 1.0F)
+                .normal(pose.normal(), normal.x(), normal.y(), normal.z())
+                .endVertex();
+    }
+
+    private static void renderTransformGizmo(VertexConsumer lineConsumer, PoseStack poseStack, PcgEditorSession session) {
+        Vec3 focus = session.getSelectionFocus();
+        if (!session.isOpen() || focus == null
+                || (session.getActiveTool() != PcgEditorTool.TRANSFORM && session.getSelection() != PcgEditorSelection.PREVIEW
+                && session.getSelection() != PcgEditorSelection.REGION && session.getSelection() != PcgEditorSelection.SPLINE_POINT)) {
+            return;
+        }
+        drawAxis(lineConsumer, poseStack, focus, focus.add(GIZMO_LENGTH, 0.0D, 0.0D), 0.96F, 0.26F, 0.24F);
+        drawAxis(lineConsumer, poseStack, focus, focus.add(0.0D, GIZMO_LENGTH, 0.0D), 0.34F, 0.95F, 0.38F);
+        drawAxis(lineConsumer, poseStack, focus, focus.add(0.0D, 0.0D, GIZMO_LENGTH), 0.32F, 0.56F, 0.96F);
+    }
+
+    private static void drawAxis(VertexConsumer lineConsumer, PoseStack poseStack, Vec3 from, Vec3 to, float red, float green, float blue) {
+        Vector3f normal = new Vector3f((float) (to.x - from.x), (float) (to.y - from.y), (float) (to.z - from.z));
+        if (normal.lengthSquared() == 0.0F) {
+            return;
+        }
+        normal.normalize();
+        PoseStack.Pose pose = poseStack.last();
+        lineConsumer.vertex(pose.pose(), (float) from.x, (float) from.y, (float) from.z)
+                .color(red, green, blue, 1.0F)
+                .normal(pose.normal(), normal.x(), normal.y(), normal.z())
+                .endVertex();
+        lineConsumer.vertex(pose.pose(), (float) to.x, (float) to.y, (float) to.z)
+                .color(red, green, blue, 1.0F)
                 .normal(pose.normal(), normal.x(), normal.y(), normal.z())
                 .endVertex();
     }

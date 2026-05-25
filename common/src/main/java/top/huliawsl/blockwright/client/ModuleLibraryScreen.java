@@ -175,7 +175,7 @@ public final class ModuleLibraryScreen extends Screen {
 
         drawModuleList(guiGraphics, modules, selectedModule);
         ModuleSchematicPreviewRenderer.render(guiGraphics, rightInnerX, previewTop, rightWidth - PANEL_INSET * 2, previewHeight,
-                selectedModule, rotationQuarterTurns, showBounds, showConnectors, showAir);
+                selectedModule, rotationQuarterTurns, 100, showBounds, showConnectors, showAir);
         drawPreviewCaption(guiGraphics, selectedModule, rightInnerX, previewBottom + 6);
         drawDetailLines(guiGraphics, detailLines);
         super.render(guiGraphics, mouseX, mouseY, partialTick);

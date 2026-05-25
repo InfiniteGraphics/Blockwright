@@ -1,0 +1,20 @@
+package top.huliawsl.blockwright.client;
+
+public enum PcgEditorTool {
+    SELECT("Select"),
+    BOX_REGION("Box Region"),
+    SPLINE("Spline"),
+    TRANSFORM("Transform"),
+    MODULE_LIBRARY("Module Library"),
+    PAINT_MASK("Paint / Mask");
+
+    private final String title;
+
+    PcgEditorTool(String title) {
+        this.title = title;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+}

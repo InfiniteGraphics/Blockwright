@@ -31,7 +31,9 @@ public final class BlockwrightClient {
             if (client.level == null || client.player == null) {
                 ClientSelectionState.clearAll();
                 ClientPreviewState.clear();
+                PcgEditorSession.get().close();
             }
+            PcgEditorViewportNavigator.tick(client, PcgEditorSession.get());
             while (OPEN_SCREEN.consumeClick()) {
                 if (client.player == null || !client.player.isCreative()) {
                     if (client.player != null) {
@@ -39,7 +41,12 @@ public final class BlockwrightClient {
                     }
                     continue;
                 }
-                client.setScreen(new BlockwrightMainScreen());
+                if (client.screen instanceof PcgEditorScreen) {
+                    client.setScreen(null);
+                    PcgEditorSession.get().close();
+                } else {
+                    client.setScreen(new PcgEditorScreen());
+                }
             }
         });
     }
