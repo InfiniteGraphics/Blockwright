@@ -24,6 +24,9 @@ public final class PcgEditorSession {
     private static final int MAX_LOG_ENTRIES = 6;
     private static final String[] MODULE_KIND_FILTERS = {"all", "static_schem", "procedural", "compound"};
     private static final String[] MODULE_MOD_STATUS_FILTERS = {"all", "available", "missing"};
+    private static final float EDITOR_NAVIGATION_FLY_SPEED = 0.12F;
+    private static final float EDITOR_NAVIGATION_FAST_FLY_SPEED = 0.22F;
+    private static final float EDITOR_LOOK_SENSITIVITY_MULTIPLIER = 0.95F;
     private static final PcgEditorSession INSTANCE = new PcgEditorSession();
 
     private final Deque<PcgEditorLogEntry> logEntries = new ArrayDeque<>();
@@ -141,7 +144,7 @@ public final class PcgEditorSession {
         abilities.mayfly = true;
         abilities.flying = true;
         abilities.mayBuild = false;
-        abilities.setFlyingSpeed(Math.max(0.08F, originalFlyingSpeed));
+        abilities.setFlyingSpeed(EDITOR_NAVIGATION_FLY_SPEED);
         player.onUpdateAbilities();
     }
 
@@ -167,6 +170,18 @@ public final class PcgEditorSession {
 
     public int getSelectedSplinePointIndex() {
         return selectedSplinePointIndex;
+    }
+
+    public float getEditorNavigationFlySpeed() {
+        return EDITOR_NAVIGATION_FLY_SPEED;
+    }
+
+    public float getEditorNavigationFastFlySpeed() {
+        return EDITOR_NAVIGATION_FAST_FLY_SPEED;
+    }
+
+    public float getEditorLookSensitivityMultiplier() {
+        return EDITOR_LOOK_SENSITIVITY_MULTIPLIER;
     }
 
     public void setSelectedSplinePointIndex(int selectedSplinePointIndex) {

@@ -34,8 +34,6 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public final class PcgEditorScreen extends Screen {
-    private static final int UI_BASE_WIDTH = 1920;
-    private static final int UI_BASE_HEIGHT = 1080;
     private static final int ROOT_BG = 0x00000000;
     private static final int PANEL_BG = 0xD610141B;
     private static final int PANEL_BORDER = 0xFF2E3640;
@@ -126,8 +124,8 @@ public final class PcgEditorScreen extends Screen {
     private int maxModuleListScroll;
     private int logScroll;
     private int maxLogScroll;
-    private int uiWidth = UI_BASE_WIDTH;
-    private int uiHeight = UI_BASE_HEIGHT;
+    private int uiWidth;
+    private int uiHeight;
     private double uiScale = 1.0D;
     private double uiOffsetX;
     private double uiOffsetY;
@@ -456,17 +454,17 @@ public final class PcgEditorScreen extends Screen {
         int rootWidth = uiWidth - OUTER_PAD * 2;
         topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, TOP_BAR_HEIGHT);
         bottomBar = new LayoutRect(OUTER_PAD, uiHeight - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
-        int actualLeftWidth = Math.max(112, Math.min(LEFT_BAR_WIDTH, uiWidth / 7));
+        int actualLeftWidth = clamp(uiWidth / 14, 112, 138);
         int maxRightWidth = Math.max(560, uiWidth / 2);
-        int actualRightWidth = Math.max(560, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
-        int maxAllowedRight = Math.max(480, rootWidth - actualLeftWidth - 420 - GAP * 2);
+        int actualRightWidth = clamp(uiWidth / 3, 560, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth));
+        int maxAllowedRight = Math.max(500, rootWidth - actualLeftWidth - 440 - GAP * 2);
         actualRightWidth = Math.min(actualRightWidth, maxAllowedRight);
         leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         rightPanel = new LayoutRect(uiWidth - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
                 actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
                 rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
-        int previewWidth = Math.max(236, Math.min(286, rightPanel.width / 3));
+        int previewWidth = clamp(rightPanel.width / 3, 228, 300);
         detailsPanel = new LayoutRect(rightPanel.x, rightPanel.y, rightPanel.width - previewWidth - GAP, rightPanel.height);
         previewDockPanel = new LayoutRect(detailsPanel.right() + GAP, rightPanel.y, previewWidth, rightPanel.height);
         modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
@@ -478,7 +476,7 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void buildTopToolbar() {
-        int y = topBar.y + 13;
+        int y = topBar.y + (topBar.height - TOP_BUTTON_HEIGHT) / 2;
         int actionGap = 6;
         int exitWidth = 76;
         int smallWidth = 82;
@@ -497,7 +495,7 @@ public final class PcgEditorScreen extends Screen {
         reloadButton = addButton("reload", x + previewWidth + regenerateWidth + smallWidth * 3 + actionGap * 5, y, smallWidth, TOP_BUTTON_HEIGHT, "Reload", false, false, this::reloadPacks);
         exitButton = addButton("exit", x + previewWidth + regenerateWidth + smallWidth * 4 + actionGap * 6, y, exitWidth, TOP_BUTTON_HEIGHT, "Exit", false, false, this::onClose);
 
-        int clusterWidth = 178;
+        int clusterWidth = computeTopClusterWidth(actionStart);
         int presetX = actionStart - clusterWidth - 16;
         int packX = presetX - clusterWidth - 12;
         addButton("pack_prev", packX, y, 20, TOP_BUTTON_HEIGHT, "<", false, false, () -> cyclePack(-1));
@@ -662,8 +660,9 @@ public final class PcgEditorScreen extends Screen {
     private void drawTopBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         drawPanel(guiGraphics, topBar, true);
         guiGraphics.fill(topBar.x + 8, topBar.y + 8, topBar.x + 34, topBar.y + topBar.height - 8, PANEL_ACCENT);
-        guiGraphics.drawString(this.font, "BW", topBar.x + 15, topBar.y + 18, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "PCG EDITOR", topBar.x + 46, topBar.y + 18, TEXT_BRIGHT);
+        int textY = topBar.y + (topBar.height - 8) / 2;
+        guiGraphics.drawString(this.font, "BW", topBar.x + 15, textY, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "PCG EDITOR", topBar.x + 46, textY, TEXT_BRIGHT);
         int actionGap = 6;
         int exitWidth = 76;
         int smallWidth = 82;
@@ -671,12 +670,13 @@ public final class PcgEditorScreen extends Screen {
         int regenerateWidth = 120;
         int actionsWidth = previewWidth + regenerateWidth + exitWidth + smallWidth * 4 + actionGap * 6;
         int actionStart = topBar.right() - 12 - actionsWidth;
-        int clusterWidth = 178;
+        int clusterWidth = computeTopClusterWidth(actionStart);
         int presetX = actionStart - clusterWidth - 16;
         int packX = presetX - clusterWidth - 12;
-        LayoutRect modeRect = new LayoutRect(topBar.x + 164, topBar.y + 9, 142, TOP_BUTTON_HEIGHT + 4);
-        LayoutRect packRect = new LayoutRect(packX + 24, topBar.y + 9, clusterWidth - 48, TOP_BUTTON_HEIGHT + 4);
-        LayoutRect presetRect = new LayoutRect(presetX + 24, topBar.y + 9, clusterWidth - 48, TOP_BUTTON_HEIGHT + 4);
+        int chipY = topBar.y + (topBar.height - (TOP_BUTTON_HEIGHT + 4)) / 2;
+        LayoutRect modeRect = new LayoutRect(topBar.x + 154, chipY, Math.max(116, packX - (topBar.x + 164) - 14), TOP_BUTTON_HEIGHT + 4);
+        LayoutRect packRect = new LayoutRect(packX + 24, chipY, clusterWidth - 48, TOP_BUTTON_HEIGHT + 4);
+        LayoutRect presetRect = new LayoutRect(presetX + 24, chipY, clusterWidth - 48, TOP_BUTTON_HEIGHT + 4);
         drawToolbarChip(guiGraphics, modeRect, "MODE", "Build", TEXT_GREEN);
         drawToolbarChip(guiGraphics, packRect, "PACK", session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, TEXT_BRIGHT);
         drawToolbarChip(guiGraphics, presetRect, "PRESET", session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, TEXT_BRIGHT);
@@ -826,9 +826,9 @@ public final class PcgEditorScreen extends Screen {
         int contentY = bottomBar.y + 8;
         int contentHeight = bottomBar.height - 16;
         int totalWidth = bottomBar.width - 16;
-        int sectionWidth = Math.max(168, totalWidth / 6);
-        int statsWidth = Math.max(170, totalWidth / 7);
-        int warningWidth = Math.max(210, totalWidth / 5);
+        int sectionWidth = clamp(totalWidth / 7, 150, 196);
+        int statsWidth = clamp(totalWidth / 7, 160, 210);
+        int warningWidth = clamp(totalWidth / 5, 210, 320);
         int logWidth = totalWidth - sectionWidth * 2 - statsWidth - warningWidth - 12;
 
         drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, sectionWidth, contentHeight), "POSITION", describePosition());
@@ -1295,6 +1295,7 @@ public final class PcgEditorScreen extends Screen {
             navUp = false;
             navDown = false;
             navFast = false;
+            resetNavigationInput();
         }
     }
 
@@ -1310,9 +1311,9 @@ public final class PcgEditorScreen extends Screen {
         if (deltaX == 0.0D && deltaY == 0.0D) {
             return;
         }
-        float sensitivity = (float) (minecraft.options.sensitivity().get() * 0.45D + 0.1D);
-        float yawStep = (float) (deltaX * sensitivity * 0.35D);
-        float pitchStep = (float) (deltaY * sensitivity * 0.35D);
+        float sensitivity = (float) (minecraft.options.sensitivity().get() * 0.45D + 0.1D) * session.getEditorLookSensitivityMultiplier();
+        float yawStep = (float) (deltaX * sensitivity * 0.28D);
+        float pitchStep = (float) (deltaY * sensitivity * 0.28D);
         minecraft.player.setYRot(minecraft.player.getYRot() + yawStep);
         minecraft.player.setXRot(clampPitch(minecraft.player.getXRot() + pitchStep));
         minecraft.player.yRotO = minecraft.player.getYRot();
@@ -1373,15 +1374,33 @@ public final class PcgEditorScreen extends Screen {
         if (downPressed) {
             verticalImpulse -= 1.0F;
         }
-        if (forwardImpulse == 0.0F && strafeImpulse == 0.0F && verticalImpulse == 0.0F) {
-            player.setDeltaMovement(player.getDeltaMovement().scale(0.4D));
+        player.input.leftImpulse = strafeImpulse;
+        player.input.forwardImpulse = forwardImpulse;
+        player.input.jumping = upPressed;
+        player.input.shiftKeyDown = downPressed;
+        player.setSprinting(fastPressed);
+        float targetFlyingSpeed = fastPressed ? session.getEditorNavigationFastFlySpeed() : session.getEditorNavigationFlySpeed();
+        if (player.getAbilities().getFlyingSpeed() != targetFlyingSpeed) {
+            player.getAbilities().setFlyingSpeed(targetFlyingSpeed);
+            player.onUpdateAbilities();
+        }
+    }
+
+    private void resetNavigationInput() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
             return;
         }
-        float speedScale = fastPressed ? 2.3F : 1.0F;
-        float originalFlyingSpeed = player.getAbilities().getFlyingSpeed();
-        player.getAbilities().setFlyingSpeed(originalFlyingSpeed * speedScale);
-        player.travel(new Vec3(strafeImpulse, verticalImpulse, forwardImpulse));
-        player.getAbilities().setFlyingSpeed(originalFlyingSpeed);
+        LocalPlayer player = minecraft.player;
+        player.input.leftImpulse = 0.0F;
+        player.input.forwardImpulse = 0.0F;
+        player.input.jumping = false;
+        player.input.shiftKeyDown = false;
+        player.setSprinting(false);
+        if (player.getAbilities().getFlyingSpeed() != session.getEditorNavigationFlySpeed()) {
+            player.getAbilities().setFlyingSpeed(session.getEditorNavigationFlySpeed());
+            player.onUpdateAbilities();
+        }
     }
 
     private void updateActionStates() {
@@ -1948,13 +1967,17 @@ public final class PcgEditorScreen extends Screen {
         return Math.max(68, Math.min(TOOL_BUTTON_HEIGHT, available / Math.max(1, toolCount)));
     }
 
+    private int computeTopClusterWidth(int actionStart) {
+        int available = actionStart - (topBar.x + 164) - 38;
+        return clamp((available - 12) / 2, 150, 220);
+    }
+
     private void updateUiMetrics() {
-        uiScale = Math.min((double) this.width / (double) UI_BASE_WIDTH, (double) this.height / (double) UI_BASE_HEIGHT);
-        uiScale = Math.max(0.25D, uiScale);
-        uiWidth = UI_BASE_WIDTH;
-        uiHeight = UI_BASE_HEIGHT;
-        uiOffsetX = (this.width - uiWidth * uiScale) / 2.0D;
-        uiOffsetY = (this.height - uiHeight * uiScale) / 2.0D;
+        uiScale = 1.0D;
+        uiWidth = this.width;
+        uiHeight = this.height;
+        uiOffsetX = 0.0D;
+        uiOffsetY = 0.0D;
     }
 
     private void beginUi(GuiGraphics guiGraphics) {
