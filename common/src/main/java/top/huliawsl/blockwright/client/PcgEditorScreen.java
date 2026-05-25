@@ -508,13 +508,14 @@ public final class PcgEditorScreen extends Screen {
         int buttonWidth = leftBar.width - 16;
         int x = leftBar.x + 8;
         int y = leftBar.y + 8;
+        int gap = 6;
         int toolHeight = computeToolButtonHeight();
         for (PcgEditorTool tool : PcgEditorTool.values()) {
             boolean disabled = tool == PcgEditorTool.PAINT_MASK;
             boolean selected = tool == session.getActiveTool();
             addButton("tool_" + tool.name().toLowerCase(Locale.ROOT), x, y, buttonWidth, toolHeight,
                     toolLabel(tool), selected, disabled, () -> switchTool(tool));
-            y += toolHeight + 8;
+            y += toolHeight + gap;
         }
     }
 
@@ -1953,18 +1954,18 @@ public final class PcgEditorScreen extends Screen {
 
     private String toolLabel(PcgEditorTool tool) {
         return switch (tool) {
-            case BOX_REGION -> "BOX REGION";
-            case MODULE_LIBRARY -> "MODULE LIBRARY";
-            case PAINT_MASK -> "PAINT / MASK";
+            case BOX_REGION -> "BOX\nREGION";
+            case MODULE_LIBRARY -> "MODULE\nLIBRARY";
+            case PAINT_MASK -> "PAINT /\nMASK";
             default -> tool.getTitle().toUpperCase(Locale.ROOT);
         };
     }
 
     private int computeToolButtonHeight() {
         int toolCount = PcgEditorTool.values().length;
-        int reserved = 24;
-        int available = leftBar.height - reserved - (toolCount - 1) * 8 - 16;
-        return Math.max(68, Math.min(TOOL_BUTTON_HEIGHT, available / Math.max(1, toolCount)));
+        int gap = 6;
+        int available = leftBar.height - 16 - (toolCount - 1) * gap;
+        return clamp(available / Math.max(1, toolCount), 52, 76);
     }
 
     private int computeTopClusterWidth(int actionStart) {
@@ -2143,8 +2144,15 @@ public final class PcgEditorScreen extends Screen {
             guiGraphics.fill(bounds.x, bounds.y, bounds.x + 1, bounds.bottom(), PANEL_BORDER);
             guiGraphics.fill(bounds.right() - 1, bounds.y, bounds.right(), bounds.bottom(), PANEL_BORDER);
             int textColor = enabled ? TEXT_BRIGHT : TEXT_MUTED;
-            int textWidth = font.width(label);
-            guiGraphics.drawString(font, label, bounds.x + Math.max(6, (bounds.width - textWidth) / 2), bounds.y + Math.max(6, (bounds.height - 8) / 2), textColor);
+            String[] lines = label.split("\\n");
+            int lineHeight = font.lineHeight + 1;
+            int totalHeight = lines.length * lineHeight - 1;
+            int textY = bounds.y + Math.max(6, (bounds.height - totalHeight) / 2);
+            for (String line : lines) {
+                int textWidth = font.width(line);
+                guiGraphics.drawString(font, line, bounds.x + Math.max(6, (bounds.width - textWidth) / 2), textY, textColor);
+                textY += lineHeight;
+            }
         }
     }
 
