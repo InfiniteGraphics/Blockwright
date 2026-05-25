@@ -65,7 +65,8 @@ public final class PcgEditorScreen extends Screen {
     private static final int ROW_HEIGHT = 28;
     private static final int MODULE_ROW_HEIGHT = 28;
     private static final int LOG_ROW_HEIGHT = 15;
-    private static final int MIN_PREVIEW_HEIGHT = 250;
+    private static final int MIN_PREVIEW_HEIGHT = 170;
+    private static final int MIN_INSPECTOR_HEIGHT = 360;
 
     private final PcgEditorSession session = PcgEditorSession.get();
     private final List<EditorButton> buttons = new ArrayList<>();
@@ -83,6 +84,7 @@ public final class PcgEditorScreen extends Screen {
     private LayoutRect moduleListViewport;
     private LayoutRect modulePreviewPanel;
     private LayoutRect messageLogRect;
+    private LayoutRect inspectorBodyRect;
     private EditorButton previewButton;
     private EditorButton regenerateButton;
     private EditorButton bakeButton;
@@ -413,9 +415,14 @@ public final class PcgEditorScreen extends Screen {
                 actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
         viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
                 rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
-        int previewHeight = Math.max(MIN_PREVIEW_HEIGHT, Math.min(310, rightPanel.height / 3));
+        int previewHeight = Math.min(250, rightPanel.height / 3);
+        int maxAllowedPreview = rightPanel.height - MIN_INSPECTOR_HEIGHT - INSET * 2;
+        previewHeight = Math.min(previewHeight, Math.max(120, maxAllowedPreview));
+        previewHeight = Math.max(120, previewHeight);
         modulePreviewPanel = new LayoutRect(rightPanel.x + INSET, rightPanel.bottom() - INSET - previewHeight,
                 rightPanel.width - INSET * 2, previewHeight);
+        inspectorBodyRect = new LayoutRect(rightPanel.x + INSET, rightPanel.y + 32, rightPanel.width - INSET * 2,
+                Math.max(120, modulePreviewPanel.y - 12 - (rightPanel.y + 32)));
         parameterViewport = null;
         moduleListViewport = null;
         messageLogRect = null;
@@ -681,9 +688,11 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void drawInspector(GuiGraphics guiGraphics) {
-        int innerX = rightPanel.x + INSET;
-        int innerWidth = rightPanel.width - INSET * 2;
-        int y = rightPanel.y + 32;
+        int innerX = inspectorBodyRect.x;
+        int innerWidth = inspectorBodyRect.width;
+        int y = inspectorBodyRect.y;
+
+        guiGraphics.enableScissor(inspectorBodyRect.x, inspectorBodyRect.y, inspectorBodyRect.right(), inspectorBodyRect.bottom());
 
         y = drawSectionHeader(guiGraphics, y, "OBJECT");
         drawLabelValue(guiGraphics, innerX, y, innerWidth, "Name", session.getSelectionLabel(), TEXT_BRIGHT);
@@ -711,19 +720,21 @@ public final class PcgEditorScreen extends Screen {
         y = drawSectionHeader(guiGraphics, y, "PARAMETERS");
         drawParameterViewport(guiGraphics, innerX, innerWidth, y);
 
-        int validationTop = modulePreviewPanel.y - 118;
+        int validationTop = Math.max(y + 16, inspectorBodyRect.bottom() - 108);
         validationTop = drawSectionHeader(guiGraphics, validationTop, "VALIDATION");
         drawValidationSection(guiGraphics, innerX, validationTop, innerWidth);
 
-        int actionsTop = modulePreviewPanel.y - 62;
+        int actionsTop = Math.max(validationTop + 54, inspectorBodyRect.bottom() - 50);
         actionsTop = drawSectionHeader(guiGraphics, actionsTop, "ACTIONS");
         guiGraphics.drawString(this.font, "Toolbar actions stay live while the world viewport is active.", innerX, actionsTop + 2, TEXT_MUTED);
+        guiGraphics.disableScissor();
     }
 
     private void drawModuleLibrary(GuiGraphics guiGraphics) {
-        int innerX = rightPanel.x + INSET;
-        int innerWidth = rightPanel.width - INSET * 2;
-        int y = rightPanel.y + 32;
+        int innerX = inspectorBodyRect.x;
+        int innerWidth = inspectorBodyRect.width;
+        int y = inspectorBodyRect.y;
+        guiGraphics.enableScissor(inspectorBodyRect.x, inspectorBodyRect.y, inspectorBodyRect.right(), inspectorBodyRect.bottom());
         y = drawSectionHeader(guiGraphics, y, "MODULE LIBRARY");
         LoadedPack pack = session.getSelectedPack();
         drawLabelValue(guiGraphics, innerX, y, innerWidth, "Pack", pack == null ? "<none>" : pack.getMetadata().id, TEXT_BRIGHT);
@@ -734,6 +745,7 @@ public final class PcgEditorScreen extends Screen {
             guiGraphics.drawString(this.font, "Modules", innerX, headerY, TEXT_BRIGHT);
             drawModuleList(guiGraphics);
         }
+        guiGraphics.disableScissor();
     }
 
     private void drawModulePreview(GuiGraphics guiGraphics) {
