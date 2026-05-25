@@ -32,7 +32,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public final class PcgEditorScreen extends Screen {
-    private static final int ROOT_BG = 0x28000000;
+    private static final int ROOT_BG = 0x00000000;
     private static final int PANEL_BG = 0xD610141B;
     private static final int PANEL_BORDER = 0xFF2E3640;
     private static final int PANEL_HEADER = 0xEA1D232C;
@@ -52,8 +52,8 @@ public final class PcgEditorScreen extends Screen {
     private static final int TEXT_BLUE = 0xFF68B7FF;
     private static final int TEXT_MAGENTA = 0xFFD786FF;
 
-    private static final int OUTER_PAD = 6;
-    private static final int GAP = 4;
+    private static final int OUTER_PAD = 0;
+    private static final int GAP = 1;
     private static final int INSET = 10;
     private static final int TOP_BAR_HEIGHT = 48;
     private static final int LEFT_BAR_WIDTH = 126;
@@ -118,6 +118,8 @@ public final class PcgEditorScreen extends Screen {
     private int maxModuleListScroll;
     private int logScroll;
     private int maxLogScroll;
+    private double navigationMouseX;
+    private double navigationMouseY;
 
     private boolean showBakeConfirm;
     private String uiSignature = "";
@@ -173,7 +175,7 @@ public final class PcgEditorScreen extends Screen {
             return handleConfirmClick(mouseX, mouseY, button);
         }
         if (button == 1 && viewport.contains(mouseX, mouseY)) {
-            startNavigation();
+            startNavigation(mouseX, mouseY);
             return true;
         }
         if (button != 0) {
@@ -207,7 +209,19 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        return button == 1 && session.isNavigating();
+        if (button == 1 && session.isNavigating()) {
+            updateNavigationLook(mouseX, mouseY);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        if (session.isNavigating()) {
+            updateNavigationLook(mouseX, mouseY);
+        }
+        super.mouseMoved(mouseX, mouseY);
     }
 
     @Override
@@ -985,7 +999,10 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void drawViewportFrame(GuiGraphics guiGraphics) {
-        drawPanel(guiGraphics, viewport, false);
+        guiGraphics.fill(viewport.x, viewport.y, viewport.right(), viewport.y + 1, PANEL_BORDER);
+        guiGraphics.fill(viewport.x, viewport.bottom() - 1, viewport.right(), viewport.bottom(), PANEL_BORDER);
+        guiGraphics.fill(viewport.x, viewport.y, viewport.x + 1, viewport.bottom(), PANEL_BORDER);
+        guiGraphics.fill(viewport.right() - 1, viewport.y, viewport.right(), viewport.bottom(), PANEL_BORDER);
     }
 
     private void drawPanel(GuiGraphics guiGraphics, LayoutRect rect, boolean topAccent) {
@@ -1199,20 +1216,38 @@ public final class PcgEditorScreen extends Screen {
         return true;
     }
 
-    private void startNavigation() {
-        Minecraft minecraft = Minecraft.getInstance();
+    private void startNavigation(double mouseX, double mouseY) {
         session.setNavigating(true);
         clearFocus();
-        minecraft.mouseHandler.grabMouse();
-        minecraft.mouseHandler.setIgnoreFirstMove();
+        navigationMouseX = mouseX;
+        navigationMouseY = mouseY;
     }
 
     private void stopNavigation() {
-        Minecraft minecraft = Minecraft.getInstance();
         if (session.isNavigating()) {
             session.setNavigating(false);
-            minecraft.mouseHandler.releaseMouse();
         }
+    }
+
+    private void updateNavigationLook(double mouseX, double mouseY) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!session.isNavigating() || minecraft.player == null) {
+            return;
+        }
+        double deltaX = mouseX - navigationMouseX;
+        double deltaY = mouseY - navigationMouseY;
+        navigationMouseX = mouseX;
+        navigationMouseY = mouseY;
+        if (deltaX == 0.0D && deltaY == 0.0D) {
+            return;
+        }
+        float sensitivity = (float) (minecraft.options.sensitivity().get() * 0.45D + 0.1D);
+        float yawStep = (float) (deltaX * sensitivity * 0.35D);
+        float pitchStep = (float) (deltaY * sensitivity * 0.35D);
+        minecraft.player.setYRot(minecraft.player.getYRot() + yawStep);
+        minecraft.player.setXRot(clampPitch(minecraft.player.getXRot() + pitchStep));
+        minecraft.player.yRotO = minecraft.player.getYRot();
+        minecraft.player.xRotO = minecraft.player.getXRot();
     }
 
     private void updateActionStates() {
@@ -1821,6 +1856,10 @@ public final class PcgEditorScreen extends Screen {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static float clampPitch(float value) {
+        return Math.max(-89.9F, Math.min(89.9F, value));
     }
 
     private String trimToWidth(String text, int width) {
