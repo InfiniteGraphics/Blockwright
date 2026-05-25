@@ -34,6 +34,8 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public final class PcgEditorScreen extends Screen {
+    private static long horizontalResizeCursor;
+    private static long verticalResizeCursor;
     private static final int ROOT_BG = 0x00000000;
     private static final int PANEL_BG = 0xD610141B;
     private static final int PANEL_BORDER = 0xFF2E3640;
@@ -67,8 +69,14 @@ public final class PcgEditorScreen extends Screen {
     private static final int ROW_HEIGHT = 28;
     private static final int MODULE_ROW_HEIGHT = 28;
     private static final int LOG_ROW_HEIGHT = 15;
+    private static final int SPLITTER_SIZE = 6;
     private static final int MIN_PREVIEW_HEIGHT = 170;
     private static final int MIN_INSPECTOR_HEIGHT = 360;
+    private static final int MIN_DETAILS_WIDTH = 320;
+    private static final int MIN_PREVIEW_WIDTH = 200;
+    private static final int MAX_PREVIEW_WIDTH = 340;
+    private static final int MIN_BOTTOM_BAR_HEIGHT = 80;
+    private static final int MAX_BOTTOM_BAR_HEIGHT = 180;
 
     private final PcgEditorSession session = PcgEditorSession.get();
     private final List<EditorButton> buttons = new ArrayList<>();
@@ -80,6 +88,7 @@ public final class PcgEditorScreen extends Screen {
     private LayoutRect topBar;
     private LayoutRect leftBar;
     private LayoutRect viewport;
+    private LayoutRect workspace;
     private LayoutRect rightPanel;
     private LayoutRect detailsPanel;
     private LayoutRect previewDockPanel;
@@ -89,6 +98,9 @@ public final class PcgEditorScreen extends Screen {
     private LayoutRect modulePreviewPanel;
     private LayoutRect messageLogRect;
     private LayoutRect inspectorBodyRect;
+    private LayoutRect detailsSplitter;
+    private LayoutRect previewSplitter;
+    private LayoutRect bottomSplitter;
     private EditorButton previewButton;
     private EditorButton regenerateButton;
     private EditorButton bakeButton;
@@ -138,6 +150,11 @@ public final class PcgEditorScreen extends Screen {
     private boolean navUp;
     private boolean navDown;
     private boolean navFast;
+    private int bottomBarHeight = BOTTOM_BAR_HEIGHT;
+    private int detailsPanelWidth = -1;
+    private int previewPanelWidth = -1;
+    private DragHandle activeDragHandle = DragHandle.NONE;
+    private CursorType activeCursorType = CursorType.DEFAULT;
 
     private boolean showBakeConfirm;
     private String uiSignature = "";
@@ -204,6 +221,9 @@ public final class PcgEditorScreen extends Screen {
         if (showBakeConfirm) {
             return handleConfirmClick(uiMouseX, uiMouseY, button);
         }
+        if (button == 0 && beginLayoutDrag(uiMouseX, uiMouseY)) {
+            return true;
+        }
         if (button == 1 && viewport.contains(uiMouseX, uiMouseY)) {
             startNavigation(mouseX, mouseY);
             return true;
@@ -230,6 +250,11 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && activeDragHandle != DragHandle.NONE) {
+            activeDragHandle = DragHandle.NONE;
+            updateCursorForPosition(toUiX(mouseX), toUiY(mouseY));
+            return true;
+        }
         if (button == 1 && session.isNavigating()) {
             stopNavigation();
             return true;
@@ -239,6 +264,10 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == 0 && activeDragHandle != DragHandle.NONE) {
+            handleLayoutDrag(toUiX(mouseX), toUiY(mouseY));
+            return true;
+        }
         if (button == 1 && session.isNavigating()) {
             updateNavigationLook(mouseX, mouseY);
             return true;
@@ -250,6 +279,8 @@ public final class PcgEditorScreen extends Screen {
     public void mouseMoved(double mouseX, double mouseY) {
         if (session.isNavigating()) {
             updateNavigationLook(mouseX, mouseY);
+        } else {
+            updateCursorForPosition(toUiX(mouseX), toUiY(mouseY));
         }
         super.mouseMoved(mouseX, mouseY);
     }
@@ -377,6 +408,7 @@ public final class PcgEditorScreen extends Screen {
     public void removed() {
         stopNavigation();
         session.setNavigating(false);
+        setCursor(CursorType.DEFAULT);
     }
 
     @Override
@@ -453,23 +485,32 @@ public final class PcgEditorScreen extends Screen {
     private void layoutRoot() {
         int rootWidth = uiWidth - OUTER_PAD * 2;
         topBar = new LayoutRect(OUTER_PAD, OUTER_PAD, rootWidth, TOP_BAR_HEIGHT);
-        bottomBar = new LayoutRect(OUTER_PAD, uiHeight - OUTER_PAD - BOTTOM_BAR_HEIGHT, rootWidth, BOTTOM_BAR_HEIGHT);
+        bottomBarHeight = clamp(bottomBarHeight, MIN_BOTTOM_BAR_HEIGHT, MAX_BOTTOM_BAR_HEIGHT);
+        bottomBar = new LayoutRect(OUTER_PAD, uiHeight - OUTER_PAD - bottomBarHeight, rootWidth, bottomBarHeight);
         int actualLeftWidth = clamp(uiWidth / 14, 112, 138);
-        int maxRightWidth = Math.max(560, uiWidth / 2);
-        int actualRightWidth = clamp(uiWidth / 4, 480, Math.min(640, Math.min(RIGHT_PANEL_WIDTH, maxRightWidth)));
-        int maxAllowedRight = Math.max(460, rootWidth - actualLeftWidth - 520 - GAP * 2);
-        actualRightWidth = Math.min(actualRightWidth, maxAllowedRight);
         leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + GAP, actualLeftWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
-        rightPanel = new LayoutRect(uiWidth - OUTER_PAD - actualRightWidth, topBar.bottom() + GAP,
-                actualRightWidth, bottomBar.y - GAP - (topBar.bottom() + GAP));
-        viewport = new LayoutRect(leftBar.right() + GAP, topBar.bottom() + GAP,
-                rightPanel.x - GAP - (leftBar.right() + GAP), bottomBar.y - GAP - (topBar.bottom() + GAP));
-        int previewWidth = clamp(rightPanel.width / 3, 200, 260);
-        detailsPanel = new LayoutRect(rightPanel.x, rightPanel.y, rightPanel.width - previewWidth - GAP, rightPanel.height);
-        previewDockPanel = new LayoutRect(detailsPanel.right() + GAP, rightPanel.y, previewWidth, rightPanel.height);
+        int contentTop = topBar.bottom() + GAP;
+        int contentHeight = bottomBar.y - GAP - contentTop;
+        int defaultPreviewWidth = clamp(uiWidth / 6, MIN_PREVIEW_WIDTH, 260);
+        int previewWidth = previewPanelWidth > 0 ? previewPanelWidth : defaultPreviewWidth;
+        previewWidth = clamp(previewWidth, MIN_PREVIEW_WIDTH, MAX_PREVIEW_WIDTH);
+        previewDockPanel = new LayoutRect(uiWidth - OUTER_PAD - previewWidth, contentTop, previewWidth, contentHeight);
+        int workspaceLeft = leftBar.right() + GAP;
+        int workspaceRight = previewDockPanel.x - GAP;
+        workspace = new LayoutRect(workspaceLeft, contentTop, workspaceRight - workspaceLeft, contentHeight);
+        viewport = workspace;
+        int defaultDetailsWidth = clamp(workspace.width / 3, MIN_DETAILS_WIDTH, Math.max(MIN_DETAILS_WIDTH, workspace.width - 220));
+        int overlayDetailsWidth = detailsPanelWidth > 0 ? detailsPanelWidth : defaultDetailsWidth;
+        int maxDetailsWidth = Math.max(MIN_DETAILS_WIDTH, workspace.width - 200);
+        overlayDetailsWidth = clamp(overlayDetailsWidth, MIN_DETAILS_WIDTH, maxDetailsWidth);
+        detailsPanel = new LayoutRect(workspace.right() - overlayDetailsWidth, workspace.y, overlayDetailsWidth, workspace.height);
+        rightPanel = new LayoutRect(detailsPanel.x, detailsPanel.y, previewDockPanel.right() - detailsPanel.x, detailsPanel.height);
         modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
         inspectorBodyRect = new LayoutRect(detailsPanel.x + INSET, detailsPanel.y + 32, detailsPanel.width - INSET * 2,
                 Math.max(120, detailsPanel.height - 44));
+        detailsSplitter = new LayoutRect(detailsPanel.x - SPLITTER_SIZE / 2, workspace.y, SPLITTER_SIZE, workspace.height);
+        previewSplitter = new LayoutRect(previewDockPanel.x - SPLITTER_SIZE / 2, workspace.y, SPLITTER_SIZE, workspace.height);
+        bottomSplitter = new LayoutRect(leftBar.right() + GAP, bottomBar.y - SPLITTER_SIZE / 2, uiWidth - (leftBar.right() + GAP), SPLITTER_SIZE);
         parameterViewport = null;
         moduleListViewport = null;
         messageLogRect = null;
@@ -714,6 +755,12 @@ public final class PcgEditorScreen extends Screen {
     private void drawRightPanel(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         drawPanel(guiGraphics, detailsPanel, false);
         drawPanel(guiGraphics, previewDockPanel, false);
+        if (detailsSplitter != null) {
+            drawLayoutHandle(guiGraphics, detailsSplitter, true);
+        }
+        if (previewSplitter != null) {
+            drawLayoutHandle(guiGraphics, previewSplitter, true);
+        }
         guiGraphics.drawString(this.font, "DETAILS", detailsPanel.x + INSET, detailsPanel.y + 10, TEXT_BRIGHT);
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             drawModuleLibrary(guiGraphics);
@@ -823,6 +870,9 @@ public final class PcgEditorScreen extends Screen {
 
     private void drawBottomBar(GuiGraphics guiGraphics) {
         drawPanel(guiGraphics, bottomBar, false);
+        if (bottomSplitter != null) {
+            drawLayoutHandle(guiGraphics, bottomSplitter, false);
+        }
         int contentX = bottomBar.x + 8;
         int contentY = bottomBar.y + 8;
         int contentHeight = bottomBar.height - 16;
@@ -1068,6 +1118,18 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.fill(viewport.right() - 1, viewport.y, viewport.right(), viewport.bottom(), PANEL_BORDER);
     }
 
+    private void drawLayoutHandle(GuiGraphics guiGraphics, LayoutRect rect, boolean vertical) {
+        int fill = 0x663E4956;
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), fill);
+        if (vertical) {
+            int center = rect.x + rect.width / 2;
+            guiGraphics.fill(center, rect.y + 8, center + 1, rect.bottom() - 8, PANEL_BORDER);
+        } else {
+            int center = rect.y + rect.height / 2;
+            guiGraphics.fill(rect.x + 8, center, rect.right() - 8, center + 1, PANEL_BORDER);
+        }
+    }
+
     private void drawPanel(GuiGraphics guiGraphics, LayoutRect rect, boolean topAccent) {
         guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), PANEL_BG);
         if (topAccent) {
@@ -1077,6 +1139,84 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.fill(rect.x, rect.bottom() - 1, rect.right(), rect.bottom(), PANEL_BORDER);
         guiGraphics.fill(rect.x, rect.y, rect.x + 1, rect.bottom(), PANEL_BORDER);
         guiGraphics.fill(rect.right() - 1, rect.y, rect.right(), rect.bottom(), PANEL_BORDER);
+    }
+
+    private boolean beginLayoutDrag(double mouseX, double mouseY) {
+        if (detailsSplitter != null && detailsSplitter.contains(mouseX, mouseY)) {
+            activeDragHandle = DragHandle.DETAILS;
+            setCursor(CursorType.HORIZONTAL_RESIZE);
+            return true;
+        }
+        if (previewSplitter != null && previewSplitter.contains(mouseX, mouseY)) {
+            activeDragHandle = DragHandle.PREVIEW;
+            setCursor(CursorType.HORIZONTAL_RESIZE);
+            return true;
+        }
+        if (bottomSplitter != null && bottomSplitter.contains(mouseX, mouseY)) {
+            activeDragHandle = DragHandle.BOTTOM;
+            setCursor(CursorType.VERTICAL_RESIZE);
+            return true;
+        }
+        return false;
+    }
+
+    private void handleLayoutDrag(double mouseX, double mouseY) {
+        switch (activeDragHandle) {
+            case DETAILS -> {
+                int newWidth = workspace.right() - (int) Math.round(mouseX);
+                detailsPanelWidth = clamp(newWidth, MIN_DETAILS_WIDTH, Math.max(MIN_DETAILS_WIDTH, workspace.width - 200));
+                rebuildUi();
+            }
+            case PREVIEW -> {
+                int newWidth = uiWidth - (int) Math.round(mouseX);
+                previewPanelWidth = clamp(newWidth, MIN_PREVIEW_WIDTH, MAX_PREVIEW_WIDTH);
+                rebuildUi();
+            }
+            case BOTTOM -> {
+                int newHeight = uiHeight - (int) Math.round(mouseY);
+                bottomBarHeight = clamp(newHeight, MIN_BOTTOM_BAR_HEIGHT, MAX_BOTTOM_BAR_HEIGHT);
+                rebuildUi();
+            }
+            case NONE -> {
+            }
+        }
+    }
+
+    private void updateCursorForPosition(double mouseX, double mouseY) {
+        CursorType target = CursorType.DEFAULT;
+        if (detailsSplitter != null && detailsSplitter.contains(mouseX, mouseY)) {
+            target = CursorType.HORIZONTAL_RESIZE;
+        } else if (previewSplitter != null && previewSplitter.contains(mouseX, mouseY)) {
+            target = CursorType.HORIZONTAL_RESIZE;
+        } else if (bottomSplitter != null && bottomSplitter.contains(mouseX, mouseY)) {
+            target = CursorType.VERTICAL_RESIZE;
+        }
+        setCursor(target);
+    }
+
+    private void setCursor(CursorType target) {
+        if (activeCursorType == target) {
+            return;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null) {
+            return;
+        }
+        long window = minecraft.getWindow().getWindow();
+        if (target == CursorType.HORIZONTAL_RESIZE) {
+            if (horizontalResizeCursor == 0L) {
+                horizontalResizeCursor = GLFW.glfwCreateStandardCursor(GLFW.GLFW_HRESIZE_CURSOR);
+            }
+            GLFW.glfwSetCursor(window, horizontalResizeCursor);
+        } else if (target == CursorType.VERTICAL_RESIZE) {
+            if (verticalResizeCursor == 0L) {
+                verticalResizeCursor = GLFW.glfwCreateStandardCursor(GLFW.GLFW_VRESIZE_CURSOR);
+            }
+            GLFW.glfwSetCursor(window, verticalResizeCursor);
+        } else {
+            GLFW.glfwSetCursor(window, 0L);
+        }
+        activeCursorType = target;
     }
 
     private EditorButton addButton(String id, int x, int y, int width, int height, String label, boolean selected, boolean danger, Runnable onPress) {
@@ -2267,6 +2407,19 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private record ParameterField(String key, int rowIndex, EditorField field) {
+    }
+
+    private enum DragHandle {
+        NONE,
+        DETAILS,
+        PREVIEW,
+        BOTTOM
+    }
+
+    private enum CursorType {
+        DEFAULT,
+        HORIZONTAL_RESIZE,
+        VERTICAL_RESIZE
     }
 
     private static final class LayoutRect {
