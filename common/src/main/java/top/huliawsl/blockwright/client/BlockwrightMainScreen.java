@@ -103,7 +103,7 @@ public final class BlockwrightMainScreen extends Screen {
 
         int buttonRowY = topY + PANEL_INSET + 14;
         int presetArrowY = presetInfoTop - 8;
-        int actionRowWidth = (rightWidth - PANEL_INSET * 2 - PANEL_GAP) / 2;
+        int actionRowWidth = (rightWidth - PANEL_INSET * 2 - PANEL_GAP * 2) / 3;
 
         addRenderableWidget(Button.builder(Component.literal("<"), button -> cyclePreset(-1))
                 .bounds(middleInnerX, presetArrowY, 24, BUTTON_HEIGHT)
@@ -114,8 +114,11 @@ public final class BlockwrightMainScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Reload"), button -> reloadPacks())
                 .bounds(rightInnerX, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
                 .build());
-        addRenderableWidget(Button.builder(Component.literal("Close"), button -> onClose())
+        addRenderableWidget(Button.builder(Component.literal("Library"), button -> openModuleLibrary())
                 .bounds(rightInnerX + actionRowWidth + PANEL_GAP, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
+                .build());
+        addRenderableWidget(Button.builder(Component.literal("Close"), button -> onClose())
+                .bounds(rightInnerX + (actionRowWidth + PANEL_GAP) * 2, buttonRowY, actionRowWidth, BUTTON_HEIGHT)
                 .build());
 
         addRenderableWidget(Button.builder(Component.literal("Set P1"), button -> sendCommand("blockwright region pos1"))
@@ -500,6 +503,11 @@ public final class BlockwrightMainScreen extends Screen {
         ClientPreviewState.markStale();
         Minecraft.getInstance().setScreen(new BlockwrightMainScreen());
         sendCommand("blockwright reload");
+    }
+
+    private void openModuleLibrary() {
+        LoadedPack selectedPack = getSelectedPack();
+        Minecraft.getInstance().setScreen(new ModuleLibraryScreen(this, selectedPack == null ? null : selectedPack.getMetadata().id));
     }
 
     private LoadedPack getSelectedPack() {
