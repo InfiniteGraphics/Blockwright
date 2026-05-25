@@ -2,7 +2,6 @@ package top.huliawsl.blockwright.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.phys.Vec3;
 
 public final class PcgEditorViewportNavigator {
@@ -15,7 +14,7 @@ public final class PcgEditorViewportNavigator {
         }
 
         LocalPlayer player = minecraft.player;
-        double speed = minecraft.options.keySprint.isDown() ? 1.2D : 0.45D;
+        double speed = minecraft.options.keySprint.isDown() ? 1.6D : 0.55D;
         Vec3 forward = player.getLookAngle();
         Vec3 flatForward = new Vec3(forward.x, 0.0D, forward.z);
         if (flatForward.lengthSqr() < 1.0E-6D) {
@@ -48,7 +47,8 @@ public final class PcgEditorViewportNavigator {
             return;
         }
 
-        player.move(MoverType.SELF, movement);
+        Vec3 destination = player.position().add(movement);
+        player.moveTo(destination.x, destination.y, destination.z, player.getYRot(), player.getXRot());
         player.setDeltaMovement(Vec3.ZERO);
     }
 }

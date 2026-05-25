@@ -4,6 +4,7 @@ import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 import top.huliawsl.blockwright.selection.SplineSelection;
 import top.huliawsl.blockwright.world.UndoEntry;
+import net.minecraft.world.level.GameType;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -15,6 +16,8 @@ public final class PlayerSession {
     private final SplineSelection splineSelection = new SplineSelection();
     private final Deque<List<UndoEntry>> undoHistory = new ArrayDeque<>();
     private PreviewPlan previewPlan;
+    private boolean editorSpectatorMode;
+    private GameType editorOriginalGameType = GameType.CREATIVE;
 
     public BoxRegionSelection getRegionSelection() {
         return regionSelection;
@@ -47,5 +50,22 @@ public final class PlayerSession {
 
     public List<UndoEntry> popUndo() {
         return undoHistory.pollFirst();
+    }
+
+    public boolean isEditorSpectatorMode() {
+        return editorSpectatorMode;
+    }
+
+    public GameType getEditorOriginalGameType() {
+        return editorOriginalGameType;
+    }
+
+    public void enterEditorSpectatorMode(GameType originalGameType) {
+        editorSpectatorMode = true;
+        editorOriginalGameType = originalGameType == null ? GameType.CREATIVE : originalGameType;
+    }
+
+    public void exitEditorSpectatorMode() {
+        editorSpectatorMode = false;
     }
 }

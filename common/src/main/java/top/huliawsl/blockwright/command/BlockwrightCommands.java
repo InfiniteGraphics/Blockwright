@@ -30,6 +30,7 @@ import top.huliawsl.blockwright.util.JsonHelper;
 import top.huliawsl.blockwright.util.ValidationIssue;
 import top.huliawsl.blockwright.world.StructurePlacer;
 import top.huliawsl.blockwright.module.model.ModuleDefinition;
+import net.minecraft.world.level.GameType;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,6 +78,14 @@ public final class BlockwrightCommands {
                 .then(Commands.literal("list")
                         .executes(command -> listSpline(command.getSource())));
 
+        LiteralArgumentBuilder<CommandSourceStack> editorCommand = Commands.literal("editor")
+                .then(Commands.literal("enter")
+                        .requires(BlockwrightCommands::hasEditorPermission)
+                        .executes(command -> enterEditorSpectator(command.getSource())))
+                .then(Commands.literal("exit")
+                        .requires(BlockwrightCommands::hasEditorPermission)
+                        .executes(command -> exitEditorSpectator(command.getSource())));
+
         dispatcher.register(Commands.literal("blockwright")
                 .then(Commands.literal("open")
                         .executes(command -> {
@@ -120,13 +129,23 @@ public final class BlockwrightCommands {
                         .requires(BlockwrightCommands::hasBuildPermission)
                         .then(Commands.argument("module_id", StringArgumentType.greedyString())
                                 .executes(command -> exportSchematic(command.getSource(), StringArgumentType.getString(command, "module_id")))))
+                .then(editorCommand)
                 .then(regionCommand)
                 .then(splineCommand));
     }
 
     private static boolean hasBuildPermission(CommandSourceStack source) {
         ServerPlayer player = source.getPlayer();
-        if (player == null || !player.isCreative()) {
+        if (player == null) {
+            return false;
+        }
+        return hasEditorPermission(source)
+                && (player.isCreative() || Blockwright.getSessionManager().getOrCreate(player).isEditorSpectatorMode());
+    }
+
+    private static boolean hasEditorPermission(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
             return false;
         }
         return !source.getServer().isDedicatedServer() || source.hasPermission(2);
@@ -137,6 +156,50 @@ public final class BlockwrightCommands {
         Blockwright.getPackManager().reload();
         Blockwright.getSessionManager().markAllPreviewsStale();
         send(source, "Reloaded " + Blockwright.getPackManager().getLoadedPackCount() + " preset pack(s) and refreshed config.");
+        return 1;
+    }
+
+    private static int enterEditorSpectator(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
+            return 0;
+        }
+        if (!player.isCreative()) {
+            send(source, "Editor spectator mode can only be entered from Creative mode.");
+            return 0;
+        }
+
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        if (session.isEditorSpectatorMode()) {
+            send(source, "Editor spectator mode is already active.");
+            return 1;
+        }
+
+        session.enterEditorSpectatorMode(player.gameMode.getGameModeForPlayer());
+        player.setGameMode(GameType.SPECTATOR);
+        send(source, "Entered Blockwright editor spectator mode.");
+        return 1;
+    }
+
+    private static int exitEditorSpectator(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
+            return 0;
+        }
+
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        if (!session.isEditorSpectatorMode()) {
+            if (!player.isCreative()) {
+                player.setGameMode(GameType.CREATIVE);
+            }
+            send(source, "Editor spectator mode was not active.");
+            return 1;
+        }
+
+        GameType restoreGameType = session.getEditorOriginalGameType();
+        session.exitEditorSpectatorMode();
+        player.setGameMode(restoreGameType == null ? GameType.CREATIVE : restoreGameType);
+        send(source, "Exited Blockwright editor spectator mode.");
         return 1;
     }
 

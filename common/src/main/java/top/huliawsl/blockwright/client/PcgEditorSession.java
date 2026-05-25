@@ -1,7 +1,9 @@
 package top.huliawsl.blockwright.client;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import top.huliawsl.blockwright.Blockwright;
@@ -28,6 +30,7 @@ public final class PcgEditorSession {
     private PcgEditorSelection selection = PcgEditorSelection.NONE;
     private boolean navigating;
     private boolean open;
+    private boolean cameraModeActive;
     private int selectedSplinePointIndex = -1;
     private String selectedPackId;
     private String selectedPresetId;
@@ -42,6 +45,16 @@ public final class PcgEditorSession {
     private boolean showModuleConnectors = true;
     private boolean showModuleAir;
     private int snapStep = 1;
+    private Vec3 cameraOrigin = Vec3.ZERO;
+    private float cameraOriginYRot;
+    private float cameraOriginXRot;
+    private boolean originalNoPhysics;
+    private boolean originalNoGravity;
+    private boolean originalFlying;
+    private boolean originalMayFly;
+    private boolean originalMayBuild = true;
+    private boolean originalInstabuild;
+    private float originalFlyingSpeed = 0.05F;
 
     private PcgEditorSession() {
     }
@@ -95,6 +108,57 @@ public final class PcgEditorSession {
 
     public void setNavigating(boolean navigating) {
         this.navigating = navigating;
+    }
+
+    public boolean isCameraModeActive() {
+        return cameraModeActive;
+    }
+
+    public void enterCameraMode(Minecraft minecraft) {
+        if (cameraModeActive || minecraft == null || minecraft.player == null) {
+            return;
+        }
+        LocalPlayer player = minecraft.player;
+        Abilities abilities = player.getAbilities();
+        cameraOrigin = player.position();
+        cameraOriginYRot = player.getYRot();
+        cameraOriginXRot = player.getXRot();
+        originalNoPhysics = player.noPhysics;
+        originalNoGravity = player.isNoGravity();
+        originalFlying = abilities.flying;
+        originalMayFly = abilities.mayfly;
+        originalMayBuild = abilities.mayBuild;
+        originalInstabuild = abilities.instabuild;
+        originalFlyingSpeed = abilities.getFlyingSpeed();
+
+        cameraModeActive = true;
+        player.noPhysics = true;
+        player.setNoGravity(true);
+        abilities.mayfly = true;
+        abilities.flying = true;
+        abilities.mayBuild = false;
+        abilities.setFlyingSpeed(Math.max(0.08F, originalFlyingSpeed));
+        player.onUpdateAbilities();
+    }
+
+    public void exitCameraMode(Minecraft minecraft) {
+        cameraModeActive = false;
+        navigating = false;
+        if (minecraft == null || minecraft.player == null) {
+            return;
+        }
+        LocalPlayer player = minecraft.player;
+        Abilities abilities = player.getAbilities();
+        player.noPhysics = originalNoPhysics;
+        player.setNoGravity(originalNoGravity);
+        abilities.flying = originalFlying;
+        abilities.mayfly = originalMayFly;
+        abilities.mayBuild = originalMayBuild;
+        abilities.instabuild = originalInstabuild;
+        abilities.setFlyingSpeed(originalFlyingSpeed);
+        player.onUpdateAbilities();
+        player.setDeltaMovement(Vec3.ZERO);
+        player.moveTo(cameraOrigin.x, cameraOrigin.y, cameraOrigin.z, cameraOriginYRot, cameraOriginXRot);
     }
 
     public int getSelectedSplinePointIndex() {
