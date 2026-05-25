@@ -3,6 +3,7 @@ package top.huliawsl.blockwright.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.architectury.platform.Platform;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
@@ -1342,6 +1343,7 @@ public final class PcgEditorScreen extends Screen {
         if (minecraft.player == null) {
             return;
         }
+        LocalPlayer player = minecraft.player;
         long window = minecraft.getWindow().getWindow();
         boolean forwardPressed = navForward || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_W);
         boolean backPressed = navBack || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_S);
@@ -1350,40 +1352,36 @@ public final class PcgEditorScreen extends Screen {
         boolean upPressed = navUp || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_SPACE);
         boolean downPressed = navDown || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL) || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean fastPressed = navFast || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT);
-        double speed = fastPressed ? 3.6D : 1.45D;
-        Vec3 forward = minecraft.player.getLookAngle();
-        Vec3 flatForward = new Vec3(forward.x, 0.0D, forward.z);
-        if (flatForward.lengthSqr() < 1.0E-6D) {
-            flatForward = new Vec3(0.0D, 0.0D, 1.0D);
-        } else {
-            flatForward = flatForward.normalize();
-        }
-        Vec3 right = new Vec3(-flatForward.z, 0.0D, flatForward.x);
-        Vec3 movement = Vec3.ZERO;
+        float forwardImpulse = 0.0F;
+        float strafeImpulse = 0.0F;
+        float verticalImpulse = 0.0F;
         if (forwardPressed) {
-            movement = movement.add(flatForward.scale(speed));
+            forwardImpulse += 1.0F;
         }
         if (backPressed) {
-            movement = movement.subtract(flatForward.scale(speed));
+            forwardImpulse -= 1.0F;
         }
         if (leftPressed) {
-            movement = movement.subtract(right.scale(speed));
+            strafeImpulse += 1.0F;
         }
         if (rightPressed) {
-            movement = movement.add(right.scale(speed));
+            strafeImpulse -= 1.0F;
         }
         if (upPressed) {
-            movement = movement.add(0.0D, speed, 0.0D);
+            verticalImpulse += 1.0F;
         }
         if (downPressed) {
-            movement = movement.add(0.0D, -speed, 0.0D);
+            verticalImpulse -= 1.0F;
         }
-        if (movement.lengthSqr() == 0.0D) {
+        if (forwardImpulse == 0.0F && strafeImpulse == 0.0F && verticalImpulse == 0.0F) {
+            player.setDeltaMovement(player.getDeltaMovement().scale(0.4D));
             return;
         }
-        Vec3 destination = minecraft.player.position().add(movement);
-        minecraft.player.moveTo(destination.x, destination.y, destination.z, minecraft.player.getYRot(), minecraft.player.getXRot());
-        minecraft.player.setDeltaMovement(Vec3.ZERO);
+        float speedScale = fastPressed ? 2.3F : 1.0F;
+        float originalFlyingSpeed = player.getAbilities().getFlyingSpeed();
+        player.getAbilities().setFlyingSpeed(originalFlyingSpeed * speedScale);
+        player.travel(new Vec3(strafeImpulse, verticalImpulse, forwardImpulse));
+        player.getAbilities().setFlyingSpeed(originalFlyingSpeed);
     }
 
     private void updateActionStates() {
