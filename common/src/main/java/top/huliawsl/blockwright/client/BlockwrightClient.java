@@ -1,6 +1,7 @@
 package top.huliawsl.blockwright.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.architectury.event.events.client.ClientPlayerEvent;
 import com.mojang.brigadier.tree.CommandNode;
 import dev.architectury.event.events.client.ClientTickEvent;
 import dev.architectury.registry.client.keymappings.KeyMappingRegistry;
@@ -30,6 +31,7 @@ public final class BlockwrightClient {
         initialized = true;
 
         KeyMappingRegistry.register(OPEN_SCREEN);
+        ClientPlayerEvent.CLIENT_PLAYER_QUIT.register(player -> closeEditor(client(), false));
         ClientTickEvent.CLIENT_POST.register(client -> {
             if (editorToggleCooldownTicks > 0) {
                 editorToggleCooldownTicks--;
@@ -37,21 +39,18 @@ public final class BlockwrightClient {
             if (client.level == null || client.player == null) {
                 ClientSelectionState.clearAll();
                 ClientPreviewState.clear();
-                PcgEditorSession.get().exitCameraMode(client);
-                PcgEditorSession.get().close();
+                closeEditor(client, false);
+            } else if (PcgEditorSession.get().hasActiveEditorState() && !(client.screen instanceof PcgEditorScreen)) {
+                closeEditor(client, true);
             }
             PcgEditorViewportNavigator.tick(client, PcgEditorSession.get());
             while (OPEN_SCREEN.consumeClick()) {
                 if (editorToggleCooldownTicks > 0) {
                     continue;
                 }
-                if (PcgEditorSession.get().isOpen()) {
-                    if (client.screen instanceof PcgEditorScreen) {
-                        client.screen.onClose();
-                    } else {
-                        sendCommand(client, "blockwright editor exit");
-                        PcgEditorSession.get().exitCameraMode(client);
-                        PcgEditorSession.get().close();
+                if (PcgEditorSession.get().hasActiveEditorState()) {
+                    closeEditor(client, true);
+                    if (client.screen != null) {
                         client.setScreen(null);
                     }
                     continue;
@@ -76,6 +75,22 @@ public final class BlockwrightClient {
         editorToggleCooldownTicks = 2;
     }
 
+    public static void closeEditor(Minecraft client, boolean notifyServer) {
+        if (client == null) {
+            return;
+        }
+        PcgEditorSession session = PcgEditorSession.get();
+        boolean hadEditorState = session.hasActiveEditorState();
+        if (notifyServer && hadEditorState) {
+            sendCommand(client, "blockwright editor exit");
+        }
+        session.exitCameraMode(client);
+        session.close();
+        if (!hadEditorState) {
+            session.resetAllEditorState();
+        }
+    }
+
     private static boolean canUseEditorSpectatorMode(Minecraft client) {
         if (client == null || client.player == null || client.player.connection == null) {
             return false;
@@ -96,5 +111,9 @@ public final class BlockwrightClient {
             return;
         }
         client.player.connection.sendCommand(command);
+    }
+
+    private static Minecraft client() {
+        return Minecraft.getInstance();
     }
 }

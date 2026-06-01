@@ -35,6 +35,9 @@ public final class PcgEditorSession {
     private boolean navigating;
     private boolean open;
     private boolean cameraModeActive;
+    private PcgEditorAxis hoveredGizmoAxis = PcgEditorAxis.NONE;
+    private PcgEditorAxis activeGizmoAxis = PcgEditorAxis.NONE;
+    private int selectedRegionCornerIndex = -1;
     private int selectedSplinePointIndex = -1;
     private String selectedPackId;
     private String selectedPresetId;
@@ -81,11 +84,12 @@ public final class PcgEditorSession {
     }
 
     public void close() {
-        if (!open) {
+        boolean wasOpen = open;
+        resetInteractionState();
+        open = false;
+        if (!wasOpen) {
             return;
         }
-        navigating = false;
-        open = false;
         log(PcgEditorLogEntry.Severity.INFO, "Editor closed.");
     }
 
@@ -119,6 +123,26 @@ public final class PcgEditorSession {
 
     public boolean isCameraModeActive() {
         return cameraModeActive;
+    }
+
+    public PcgEditorAxis getHoveredGizmoAxis() {
+        return hoveredGizmoAxis;
+    }
+
+    public void setHoveredGizmoAxis(PcgEditorAxis hoveredGizmoAxis) {
+        this.hoveredGizmoAxis = hoveredGizmoAxis == null ? PcgEditorAxis.NONE : hoveredGizmoAxis;
+    }
+
+    public PcgEditorAxis getActiveGizmoAxis() {
+        return activeGizmoAxis;
+    }
+
+    public void setActiveGizmoAxis(PcgEditorAxis activeGizmoAxis) {
+        this.activeGizmoAxis = activeGizmoAxis == null ? PcgEditorAxis.NONE : activeGizmoAxis;
+    }
+
+    public boolean hasActiveEditorState() {
+        return open || cameraModeActive || navigating;
     }
 
     public void enterCameraMode(Minecraft minecraft) {
@@ -165,11 +189,30 @@ public final class PcgEditorSession {
         abilities.setFlyingSpeed(originalFlyingSpeed);
         player.onUpdateAbilities();
         player.setDeltaMovement(Vec3.ZERO);
-        player.moveTo(cameraOrigin.x, cameraOrigin.y, cameraOrigin.z, cameraOriginYRot, cameraOriginXRot);
+    }
+
+    public void resetInteractionState() {
+        navigating = false;
+        selection = PcgEditorSelection.NONE;
+        hoveredGizmoAxis = PcgEditorAxis.NONE;
+        activeGizmoAxis = PcgEditorAxis.NONE;
+        selectedRegionCornerIndex = -1;
+        selectedSplinePointIndex = -1;
+        ClientSelectionState.clearHoverPlacement();
+    }
+
+    public void resetAllEditorState() {
+        open = false;
+        cameraModeActive = false;
+        resetInteractionState();
     }
 
     public int getSelectedSplinePointIndex() {
         return selectedSplinePointIndex;
+    }
+
+    public int getSelectedRegionCornerIndex() {
+        return selectedRegionCornerIndex;
     }
 
     public float getEditorNavigationFlySpeed() {
@@ -186,6 +229,10 @@ public final class PcgEditorSession {
 
     public void setSelectedSplinePointIndex(int selectedSplinePointIndex) {
         this.selectedSplinePointIndex = selectedSplinePointIndex;
+    }
+
+    public void setSelectedRegionCornerIndex(int selectedRegionCornerIndex) {
+        this.selectedRegionCornerIndex = selectedRegionCornerIndex;
     }
 
     public String getSelectedPackId() {
@@ -427,7 +474,11 @@ public final class PcgEditorSession {
 
     public String getSelectionLabel() {
         return switch (selection) {
-            case REGION -> "Box Region_01";
+            case REGION -> switch (selectedRegionCornerIndex) {
+                case 0 -> "Box Region_01 / P1";
+                case 1 -> "Box Region_01 / P2";
+                default -> "Box Region_01";
+            };
             case SPLINE -> "RoadSpline_01";
             case SPLINE_POINT -> "Spline Point #" + selectedSplinePointIndex;
             case PREVIEW -> "Structure Preview";
@@ -440,7 +491,13 @@ public final class PcgEditorSession {
         BoxRegionSelection region = ClientSelectionState.getRegionSelection();
         SplineSelection spline = ClientSelectionState.getSplineSelection();
         return switch (selection) {
-            case REGION -> region.isComplete() ? region.toAabb().getCenter() : null;
+            case REGION -> {
+                BlockPos selectedCorner = getSelectedRegionCorner();
+                if (selectedCorner != null) {
+                    yield Vec3.atCenterOf(selectedCorner);
+                }
+                yield region.isComplete() ? region.toAabb().getCenter() : null;
+            }
             case SPLINE_POINT -> {
                 if (selectedSplinePointIndex >= 0 && selectedSplinePointIndex < spline.getPoints().size()) {
                     yield Vec3.atCenterOf(spline.getPoints().get(selectedSplinePointIndex));
@@ -469,9 +526,24 @@ public final class PcgEditorSession {
         return spline.getPoints().get(selectedSplinePointIndex);
     }
 
+    public BlockPos getSelectedRegionCorner() {
+        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
+        return switch (selectedRegionCornerIndex) {
+            case 0 -> region.getPos1();
+            case 1 -> region.getPos2();
+            default -> null;
+        };
+    }
+
     public void selectRegionIfPresent() {
-        if (ClientSelectionState.getRegionSelection().isComplete()) {
+        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
+        if (region.getPos1() != null || region.getPos2() != null) {
             selection = PcgEditorSelection.REGION;
+            if (region.getPos2() != null) {
+                selectedRegionCornerIndex = 1;
+            } else if (region.getPos1() != null) {
+                selectedRegionCornerIndex = 0;
+            }
         }
     }
 
@@ -492,8 +564,10 @@ public final class PcgEditorSession {
     }
 
     public void syncSelectionDefaults() {
-        if (selection == PcgEditorSelection.REGION && !ClientSelectionState.getRegionSelection().isComplete()) {
+        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
+        if (selection == PcgEditorSelection.REGION && region.getPos1() == null && region.getPos2() == null) {
             selection = PcgEditorSelection.NONE;
+            selectedRegionCornerIndex = -1;
         }
         if ((selection == PcgEditorSelection.SPLINE || selection == PcgEditorSelection.SPLINE_POINT)
                 && ClientSelectionState.getSplineSelection().getPoints().isEmpty()) {
@@ -501,10 +575,20 @@ public final class PcgEditorSession {
             selectedSplinePointIndex = -1;
         }
         if (selection == PcgEditorSelection.NONE) {
-            if (ClientSelectionState.getRegionSelection().isComplete()) {
+            if (region.getPos1() != null || region.getPos2() != null) {
                 selection = PcgEditorSelection.REGION;
+                selectedRegionCornerIndex = region.getPos2() != null ? 1 : 0;
             } else if (!ClientSelectionState.getSplineSelection().getPoints().isEmpty()) {
                 selection = PcgEditorSelection.SPLINE;
+            }
+        }
+        if (selection == PcgEditorSelection.REGION) {
+            if (selectedRegionCornerIndex == 0 && region.getPos1() == null) {
+                selectedRegionCornerIndex = region.getPos2() != null ? 1 : -1;
+            } else if (selectedRegionCornerIndex == 1 && region.getPos2() == null) {
+                selectedRegionCornerIndex = region.getPos1() != null ? 0 : -1;
+            } else if (selectedRegionCornerIndex < 0) {
+                selectedRegionCornerIndex = region.getPos2() != null ? 1 : (region.getPos1() != null ? 0 : -1);
             }
         }
         if (selection == PcgEditorSelection.SPLINE && selectedSplinePointIndex < 0

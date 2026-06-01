@@ -1,6 +1,5 @@
 package top.huliawsl.blockwright.client;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import dev.architectury.platform.Platform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -8,6 +7,9 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 import top.huliawsl.blockwright.Blockwright;
@@ -34,6 +36,9 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public final class PcgEditorScreen extends Screen {
+    private static final double GIZMO_AXIS_LENGTH = 2.0D;
+    private static final double GIZMO_PICK_RADIUS = 12.0D;
+    private static final double GIZMO_MIN_AXIS_SCREEN_LENGTH = 10.0D;
     private static long horizontalResizeCursor;
     private static long verticalResizeCursor;
     private static final int ROOT_BG = 0x00000000;
@@ -124,6 +129,8 @@ public final class PcgEditorScreen extends Screen {
     private double uiOffsetY;
     private double navigationMouseX;
     private double navigationMouseY;
+    private Vec3 navigationVelocity = Vec3.ZERO;
+    private long navigationLastNanos;
     private boolean navForward;
     private boolean navBack;
     private boolean navLeft;
@@ -136,6 +143,14 @@ public final class PcgEditorScreen extends Screen {
     private int previewPanelWidth = -1;
     private DragHandle activeDragHandle = DragHandle.NONE;
     private CursorType activeCursorType = CursorType.DEFAULT;
+    private PcgEditorAxis activeGizmoAxis = PcgEditorAxis.NONE;
+    private BlockPos gizmoDragStartPoint;
+    private BlockPos gizmoDragAppliedPoint;
+    private double gizmoDragStartMouseX;
+    private double gizmoDragStartMouseY;
+    private double gizmoDragAxisUnitX;
+    private double gizmoDragAxisUnitY;
+    private double gizmoDragWorldPerPixel;
 
     private boolean showBakeConfirm;
     private String uiSignature = "";
@@ -169,13 +184,14 @@ public final class PcgEditorScreen extends Screen {
             clampLogScroll();
             refreshVisibleModules();
         }
-        if (session.isNavigating()) {
-            tickNavigationMovement();
-        }
     }
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        if (session.isNavigating()) {
+            tickNavigationMovement();
+        }
+        updateHoverPlacement(mouseX, mouseY);
         guiGraphics.fill(0, 0, this.width, this.height, ROOT_BG);
         if (showBakeConfirm) {
             guiGraphics.fill(0, 0, this.width, this.height, 0x99000000);
@@ -224,13 +240,20 @@ public final class PcgEditorScreen extends Screen {
             return selectModuleFromList(uiMouseY);
         }
         if (viewport.contains(uiMouseX, uiMouseY) && !session.isNavigating()) {
-            return handleViewportClick();
+            if (beginGizmoDrag(mouseX, mouseY)) {
+                return true;
+            }
+            return handleViewportClick(mouseX, mouseY);
         }
         return false;
     }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && activeGizmoAxis != PcgEditorAxis.NONE) {
+            finishGizmoDrag();
+            return true;
+        }
         if (button == 0 && activeDragHandle != DragHandle.NONE) {
             activeDragHandle = DragHandle.NONE;
             updateCursorForPosition(toUiX(mouseX), toUiY(mouseY));
@@ -245,6 +268,10 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == 0 && activeGizmoAxis != PcgEditorAxis.NONE) {
+            updateGizmoDrag(mouseX, mouseY);
+            return true;
+        }
         if (button == 0 && activeDragHandle != DragHandle.NONE) {
             handleLayoutDrag(toUiX(mouseX), toUiY(mouseY));
             return true;
@@ -319,7 +346,7 @@ public final class PcgEditorScreen extends Screen {
             return true;
         }
 
-        if (handleNavigationKey(keyCode, true)) {
+        if (handleNavigationKey(keyCode, scanCode, true)) {
             return true;
         }
 
@@ -358,6 +385,10 @@ public final class PcgEditorScreen extends Screen {
             deleteSelection();
             return true;
         }
+        if (hasControlDown() && keyCode == GLFW.GLFW_KEY_D) {
+            clearAllSelections();
+            return true;
+        }
         if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Z) {
             runAction("blockwright undo", PcgEditorLogEntry.Severity.INFO, "Undo requested.");
             return true;
@@ -371,7 +402,7 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-        if (handleNavigationKey(keyCode, false)) {
+        if (handleNavigationKey(keyCode, scanCode, false)) {
             return true;
         }
         return super.keyReleased(keyCode, scanCode, modifiers);
@@ -387,8 +418,9 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public void removed() {
+        cancelGizmoDrag();
         stopNavigation();
-        session.setNavigating(false);
+        BlockwrightClient.closeEditor(Minecraft.getInstance(), true);
         setCursor(CursorType.DEFAULT);
     }
 
@@ -399,11 +431,10 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public void onClose() {
+        cancelGizmoDrag();
         stopNavigation();
         BlockwrightClient.suppressNextEditorToggle();
-        sendCommand("blockwright editor exit");
-        session.exitCameraMode(Minecraft.getInstance());
-        session.close();
+        BlockwrightClient.closeEditor(Minecraft.getInstance(), true);
         Minecraft.getInstance().setScreen(null);
     }
 
@@ -1300,8 +1331,12 @@ public final class PcgEditorScreen extends Screen {
                 + "|" + safe(session.getSelectedPresetId())
                 + "|" + safe(module == null ? session.getSelectedModuleId() : module.id)
                 + "|" + region.isComplete()
+                + "|" + posKey(region.getPos1())
+                + "|" + posKey(region.getPos2())
                 + "|" + region.getWidth() + "x" + region.getHeight() + "x" + region.getDepth()
                 + "|" + spline.getPoints().size()
+                + "|" + posKey(getSelectedControlPoint())
+                + "|" + session.getSelectedRegionCornerIndex()
                 + "|" + session.getSelectedSplinePointIndex()
                 + "|" + session.getPreviewState().name()
                 + "|" + session.getModuleKindFilter()
@@ -1313,14 +1348,33 @@ public final class PcgEditorScreen extends Screen {
                 + "|" + this.width + "x" + this.height;
     }
 
-    private boolean handleViewportClick() {
+    private String posKey(BlockPos pos) {
+        return pos == null ? "<none>" : pos.getX() + "," + pos.getY() + "," + pos.getZ();
+    }
+
+    private boolean handleViewportClick(double mouseX, double mouseY) {
+        boolean selectedExistingTarget = selectViewportTarget(mouseX, mouseY);
         switch (session.getActiveTool()) {
             case BOX_REGION -> {
-                handleBoxRegionClick();
+                if (selectedExistingTarget) {
+                    rebuildUi();
+                    return true;
+                }
+                handleBoxRegionClick(mouseX, mouseY);
                 return true;
             }
             case SPLINE -> {
-                runAction("blockwright spline add", PcgEditorLogEntry.Severity.INFO, "Added spline point.");
+                if (selectedExistingTarget) {
+                    rebuildUi();
+                    return true;
+                }
+                BlockPos target = pickViewportBlock(mouseX, mouseY);
+                if (target == null) {
+                    session.log(PcgEditorLogEntry.Severity.WARNING, "No block under the editor view.");
+                    return true;
+                }
+                runAction("blockwright spline addpos " + target.getX() + " " + target.getY() + " " + target.getZ(),
+                        PcgEditorLogEntry.Severity.INFO, "Added spline point.");
                 session.selectSplineIfPresent();
                 session.setSelection(PcgEditorSelection.SPLINE_POINT);
                 session.setSelectedSplinePointIndex(ClientSelectionState.getSplineSelection().getPoints().size() - 1);
@@ -1328,11 +1382,19 @@ public final class PcgEditorScreen extends Screen {
                 return true;
             }
             case SELECT -> {
+                if (selectedExistingTarget) {
+                    rebuildUi();
+                    return true;
+                }
                 selectBestObject();
                 rebuildUi();
                 return true;
             }
             case TRANSFORM -> {
+                if (selectedExistingTarget) {
+                    rebuildUi();
+                    return true;
+                }
                 focusSelection();
                 return true;
             }
@@ -1343,17 +1405,328 @@ public final class PcgEditorScreen extends Screen {
         return false;
     }
 
-    private void handleBoxRegionClick() {
-        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
-        if (region.getPos1() == null || region.isComplete()) {
-            if (region.isComplete()) {
-                runAction("blockwright region clear", PcgEditorLogEntry.Severity.INFO, "Started a new box region.");
-            }
-            runAction("blockwright region pos1", PcgEditorLogEntry.Severity.INFO, "Set region corner P1.");
-        } else {
-            runAction("blockwright region pos2", PcgEditorLogEntry.Severity.INFO, "Set region corner P2.");
-            session.setSelection(PcgEditorSelection.REGION);
+    private void handleBoxRegionClick(double mouseX, double mouseY) {
+        BlockPos target = pickViewportBlock(mouseX, mouseY);
+        if (target == null) {
+            session.log(PcgEditorLogEntry.Severity.WARNING, "No block under the editor view.");
+            return;
         }
+        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
+        if (region.getPos1() == null) {
+            setRegionCorner(true, target, "Set region corner P1.");
+            session.setSelection(PcgEditorSelection.REGION);
+            session.setSelectedRegionCornerIndex(0);
+        } else if (region.getPos2() == null) {
+            setRegionCorner(false, target, "Set region corner P2.");
+            session.setSelection(PcgEditorSelection.REGION);
+            session.setSelectedRegionCornerIndex(1);
+        } else {
+            runAction("blockwright region clear", PcgEditorLogEntry.Severity.INFO, "Started a new box region.");
+            setRegionCorner(true, target, "Set region corner P1.");
+            session.setSelection(PcgEditorSelection.REGION);
+            session.setSelectedRegionCornerIndex(0);
+        }
+        rebuildUi();
+    }
+
+    private void setRegion(BlockPos p1, BlockPos p2, String logMessage) {
+        runAction("blockwright region set "
+                        + p1.getX() + " " + p1.getY() + " " + p1.getZ() + " "
+                        + p2.getX() + " " + p2.getY() + " " + p2.getZ(),
+                PcgEditorLogEntry.Severity.INFO, logMessage);
+    }
+
+    private void setRegionCorner(boolean firstCorner, BlockPos pos, String logMessage) {
+        runAction("blockwright region " + (firstCorner ? "setpos1 " : "setpos2 ")
+                        + pos.getX() + " " + pos.getY() + " " + pos.getZ(),
+                PcgEditorLogEntry.Severity.INFO, logMessage);
+    }
+
+    private BlockPos pickViewportBlock(double mouseX, double mouseY) {
+        BlockHitResult blockHit = pickViewportHit(mouseX, mouseY);
+        return blockHit == null ? null : blockHit.getBlockPos().relative(blockHit.getDirection());
+    }
+
+    private BlockPos pickViewportSurfaceBlock(double mouseX, double mouseY) {
+        BlockHitResult blockHit = pickViewportHit(mouseX, mouseY);
+        return blockHit == null ? null : blockHit.getBlockPos();
+    }
+
+    private BlockHitResult pickViewportHit(double mouseX, double mouseY) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null || minecraft.level == null) {
+            return null;
+        }
+        Vec3 eye = minecraft.player.getEyePosition(1.0F);
+        Vec3 direction = screenRayDirection(mouseX, mouseY);
+        if (direction == null) {
+            return null;
+        }
+        HitResult hit = minecraft.level.clip(new ClipContext(
+                eye,
+                eye.add(direction.scale(160.0D)),
+                ClipContext.Block.OUTLINE,
+                ClipContext.Fluid.NONE,
+                minecraft.player
+        ));
+        if (hit instanceof BlockHitResult blockHit && blockHit.getType() == HitResult.Type.BLOCK) {
+            return blockHit;
+        }
+        return null;
+    }
+
+    private boolean beginGizmoDrag(double mouseX, double mouseY) {
+        BlockPos controlPoint = getSelectedControlPoint();
+        if (controlPoint == null) {
+            return false;
+        }
+        PcgEditorAxis axis = pickGizmoAxis(mouseX, mouseY, controlPoint);
+        if (axis == PcgEditorAxis.NONE) {
+            return false;
+        }
+        ScreenProjection originProjection = projectWorldToScreen(Vec3.atCenterOf(controlPoint));
+        ScreenProjection axisProjection = projectWorldToScreen(Vec3.atCenterOf(controlPoint).add(axis.stepX() * GIZMO_AXIS_LENGTH,
+                axis.stepY() * GIZMO_AXIS_LENGTH, axis.stepZ() * GIZMO_AXIS_LENGTH));
+        if (originProjection == null || axisProjection == null) {
+            return false;
+        }
+        double axisScreenX = axisProjection.screenX - originProjection.screenX;
+        double axisScreenY = axisProjection.screenY - originProjection.screenY;
+        double axisScreenLength = Math.hypot(axisScreenX, axisScreenY);
+        if (axisScreenLength < GIZMO_MIN_AXIS_SCREEN_LENGTH) {
+            return false;
+        }
+        activeGizmoAxis = axis;
+        gizmoDragStartPoint = controlPoint;
+        gizmoDragAppliedPoint = controlPoint;
+        gizmoDragStartMouseX = mouseX;
+        gizmoDragStartMouseY = mouseY;
+        gizmoDragAxisUnitX = axisScreenX / axisScreenLength;
+        gizmoDragAxisUnitY = axisScreenY / axisScreenLength;
+        gizmoDragWorldPerPixel = GIZMO_AXIS_LENGTH / axisScreenLength;
+        session.setActiveGizmoAxis(axis);
+        session.setHoveredGizmoAxis(axis);
+        return true;
+    }
+
+    private void updateGizmoDrag(double mouseX, double mouseY) {
+        if (activeGizmoAxis == PcgEditorAxis.NONE || gizmoDragStartPoint == null) {
+            return;
+        }
+        double projectedPixels = (mouseX - gizmoDragStartMouseX) * gizmoDragAxisUnitX
+                + (mouseY - gizmoDragStartMouseY) * gizmoDragAxisUnitY;
+        int snappedOffset = snapAxisOffset(projectedPixels * gizmoDragWorldPerPixel);
+        BlockPos nextPoint = gizmoDragStartPoint.offset(
+                activeGizmoAxis.stepX() * snappedOffset,
+                activeGizmoAxis.stepY() * snappedOffset,
+                activeGizmoAxis.stepZ() * snappedOffset
+        );
+        if (nextPoint.equals(gizmoDragAppliedPoint) || !moveSelectedControlPoint(nextPoint, false)) {
+            return;
+        }
+        gizmoDragAppliedPoint = nextPoint;
+        rebuildUi();
+    }
+
+    private void finishGizmoDrag() {
+        if (activeGizmoAxis == PcgEditorAxis.NONE) {
+            return;
+        }
+        if (gizmoDragStartPoint != null && gizmoDragAppliedPoint != null && !gizmoDragStartPoint.equals(gizmoDragAppliedPoint)) {
+            logControlPointMove();
+        }
+        cancelGizmoDrag();
+        rebuildUi();
+    }
+
+    private void cancelGizmoDrag() {
+        activeGizmoAxis = PcgEditorAxis.NONE;
+        gizmoDragStartPoint = null;
+        gizmoDragAppliedPoint = null;
+        gizmoDragStartMouseX = 0.0D;
+        gizmoDragStartMouseY = 0.0D;
+        gizmoDragAxisUnitX = 0.0D;
+        gizmoDragAxisUnitY = 0.0D;
+        gizmoDragWorldPerPixel = 0.0D;
+        session.setActiveGizmoAxis(PcgEditorAxis.NONE);
+    }
+
+    private PcgEditorAxis pickGizmoAxis(double mouseX, double mouseY, BlockPos controlPoint) {
+        Vec3 origin = Vec3.atCenterOf(controlPoint);
+        ScreenProjection originProjection = projectWorldToScreen(origin);
+        if (originProjection == null) {
+            return PcgEditorAxis.NONE;
+        }
+        PcgEditorAxis bestAxis = PcgEditorAxis.NONE;
+        double bestDistance = GIZMO_PICK_RADIUS;
+        for (PcgEditorAxis axis : PcgEditorAxis.values()) {
+            if (axis == PcgEditorAxis.NONE) {
+                continue;
+            }
+            ScreenProjection axisProjection = projectWorldToScreen(origin.add(axis.stepX() * GIZMO_AXIS_LENGTH,
+                    axis.stepY() * GIZMO_AXIS_LENGTH, axis.stepZ() * GIZMO_AXIS_LENGTH));
+            if (axisProjection == null) {
+                continue;
+            }
+            double distance = distanceToSegment(mouseX, mouseY,
+                    originProjection.screenX, originProjection.screenY,
+                    axisProjection.screenX, axisProjection.screenY);
+            if (distance <= bestDistance) {
+                bestDistance = distance;
+                bestAxis = axis;
+            }
+        }
+        return bestAxis;
+    }
+
+    private Vec3 screenRayDirection(double mouseX, double mouseY) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return null;
+        }
+        double normalizedX = mouseX / Math.max(1.0D, this.width) * 2.0D - 1.0D;
+        double normalizedY = 1.0D - mouseY / Math.max(1.0D, this.height) * 2.0D;
+        double aspect = Math.max(1.0D, (double) this.width / Math.max(1, this.height));
+        double fovDegrees = minecraft.options.fov().get();
+        double tanHalfFov = Math.tan(Math.toRadians(fovDegrees) * 0.5D);
+        Vec3 forward = minecraft.player.getViewVector(1.0F).normalize();
+        Vec3 worldUp = new Vec3(0.0D, 1.0D, 0.0D);
+        Vec3 right = forward.cross(worldUp);
+        if (right.lengthSqr() < 1.0E-6D) {
+            right = new Vec3(1.0D, 0.0D, 0.0D);
+        } else {
+            right = right.normalize();
+        }
+        Vec3 up = right.cross(forward);
+        if (up.lengthSqr() < 1.0E-6D) {
+            up = worldUp;
+        } else {
+            up = up.normalize();
+        }
+        return forward
+                .add(right.scale(normalizedX * tanHalfFov * aspect))
+                .add(up.scale(normalizedY * tanHalfFov))
+                .normalize();
+    }
+
+    private ScreenProjection projectWorldToScreen(Vec3 worldPos) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return null;
+        }
+        Vec3 eye = minecraft.player.getEyePosition(1.0F);
+        Vec3 forward = minecraft.player.getViewVector(1.0F).normalize();
+        Vec3 worldUp = new Vec3(0.0D, 1.0D, 0.0D);
+        Vec3 right = forward.cross(worldUp);
+        if (right.lengthSqr() < 1.0E-6D) {
+            right = new Vec3(1.0D, 0.0D, 0.0D);
+        } else {
+            right = right.normalize();
+        }
+        Vec3 up = right.cross(forward);
+        if (up.lengthSqr() < 1.0E-6D) {
+            up = worldUp;
+        } else {
+            up = up.normalize();
+        }
+        Vec3 relative = worldPos.subtract(eye);
+        double depth = relative.dot(forward);
+        if (depth <= 0.05D) {
+            return null;
+        }
+        double aspect = Math.max(1.0D, (double) this.width / Math.max(1, this.height));
+        double tanHalfFov = Math.tan(Math.toRadians(minecraft.options.fov().get()) * 0.5D);
+        double normalizedX = relative.dot(right) / (depth * tanHalfFov * aspect);
+        double normalizedY = relative.dot(up) / (depth * tanHalfFov);
+        double screenX = (normalizedX + 1.0D) * 0.5D * this.width;
+        double screenY = (1.0D - normalizedY) * 0.5D * this.height;
+        return new ScreenProjection(screenX, screenY, depth);
+    }
+
+    private void updateHoverPlacement(double mouseX, double mouseY) {
+        if (session.isNavigating() || showBakeConfirm || activeGizmoAxis != PcgEditorAxis.NONE) {
+            session.setHoveredGizmoAxis(PcgEditorAxis.NONE);
+            ClientSelectionState.clearHoverPlacement();
+            return;
+        }
+        double uiMouseX = toUiX(mouseX);
+        double uiMouseY = toUiY(mouseY);
+        if (!viewport.contains(uiMouseX, uiMouseY)) {
+            session.setHoveredGizmoAxis(PcgEditorAxis.NONE);
+            ClientSelectionState.clearHoverPlacement();
+            return;
+        }
+        updateHoveredGizmoAxis(mouseX, mouseY);
+        if (session.getHoveredGizmoAxis() != PcgEditorAxis.NONE) {
+            ClientSelectionState.clearHoverPlacement();
+            return;
+        }
+        if (session.getActiveTool() != PcgEditorTool.BOX_REGION && session.getActiveTool() != PcgEditorTool.SPLINE) {
+            ClientSelectionState.clearHoverPlacement();
+            return;
+        }
+        if (findViewportSelectionTarget(mouseX, mouseY) != null) {
+            ClientSelectionState.clearHoverPlacement();
+            return;
+        }
+        ClientSelectionState.setHoverPlacement(pickViewportBlock(mouseX, mouseY));
+    }
+
+    private void updateHoveredGizmoAxis(double mouseX, double mouseY) {
+        BlockPos controlPoint = getSelectedControlPoint();
+        if (controlPoint == null) {
+            session.setHoveredGizmoAxis(PcgEditorAxis.NONE);
+            return;
+        }
+        session.setHoveredGizmoAxis(pickGizmoAxis(mouseX, mouseY, controlPoint));
+    }
+
+    private boolean selectViewportTarget(double mouseX, double mouseY) {
+        ViewportSelectionTarget target = findViewportSelectionTarget(mouseX, mouseY);
+        if (target == null) {
+            return false;
+        }
+        session.setSelection(target.selection());
+        session.setSelectedRegionCornerIndex(target.regionCornerIndex());
+        if (target.selection() == PcgEditorSelection.SPLINE_POINT) {
+            session.setSelectedSplinePointIndex(target.splinePointIndex());
+        } else {
+            session.setSelectedSplinePointIndex(-1);
+        }
+        session.log(PcgEditorLogEntry.Severity.INFO, target.logMessage());
+        return true;
+    }
+
+    private ViewportSelectionTarget findViewportSelectionTarget(double mouseX, double mouseY) {
+        BlockPos surfaceHit = pickViewportSurfaceBlock(mouseX, mouseY);
+        BlockPos placementHit = pickViewportBlock(mouseX, mouseY);
+        if (surfaceHit == null && placementHit == null) {
+            return null;
+        }
+        SplineSelection spline = ClientSelectionState.getSplineSelection();
+        for (int i = 0; i < spline.getPoints().size(); i++) {
+            BlockPos point = spline.getPoints().get(i);
+            if (point.equals(surfaceHit) || point.equals(placementHit)) {
+                return new ViewportSelectionTarget(PcgEditorSelection.SPLINE_POINT, -1, i, "Selected spline point #" + i + ".");
+            }
+        }
+        BoxRegionSelection region = ClientSelectionState.getRegionSelection();
+        if ((region.getPos1() != null && region.getPos1().equals(surfaceHit))
+                || (region.getPos1() != null && region.getPos1().equals(placementHit))) {
+            return new ViewportSelectionTarget(PcgEditorSelection.REGION, 0, -1, "Selected Box Region_01 corner P1.");
+        }
+        if ((region.getPos2() != null && region.getPos2().equals(surfaceHit))
+                || (region.getPos2() != null && region.getPos2().equals(placementHit))) {
+            return new ViewportSelectionTarget(PcgEditorSelection.REGION, 1, -1, "Selected Box Region_01 corner P2.");
+        }
+        return null;
+    }
+
+    private void clearAllSelections() {
+        runAction("blockwright region clear", PcgEditorLogEntry.Severity.INFO, "Cleared all selections.");
+        runAction("blockwright spline clear", PcgEditorLogEntry.Severity.INFO, "Cleared all selections.");
+        session.setSelection(PcgEditorSelection.NONE);
+        ClientSelectionState.clearHoverPlacement();
         rebuildUi();
     }
 
@@ -1361,8 +1734,9 @@ public final class PcgEditorScreen extends Screen {
         BoxRegionSelection region = ClientSelectionState.getRegionSelection();
         SplineSelection spline = ClientSelectionState.getSplineSelection();
         PreviewPlan preview = ClientPreviewState.getPreviewPlan();
-        if (region.isComplete()) {
+        if (region.getPos1() != null || region.getPos2() != null) {
             session.setSelection(PcgEditorSelection.REGION);
+            session.setSelectedRegionCornerIndex(region.getPos2() != null ? 1 : 0);
             session.log(PcgEditorLogEntry.Severity.INFO, "Selected Box Region_01.");
             return;
         }
@@ -1396,6 +1770,7 @@ public final class PcgEditorScreen extends Screen {
         clearFocus();
         navigationMouseX = mouseX;
         navigationMouseY = mouseY;
+        navigationLastNanos = System.nanoTime();
     }
 
     private void stopNavigation() {
@@ -1408,6 +1783,8 @@ public final class PcgEditorScreen extends Screen {
             navUp = false;
             navDown = false;
             navFast = false;
+            navigationVelocity = Vec3.ZERO;
+            navigationLastNanos = 0L;
             resetNavigationInput();
         }
     }
@@ -1425,29 +1802,36 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         float sensitivity = (float) (minecraft.options.sensitivity().get() * 0.45D + 0.1D) * session.getEditorLookSensitivityMultiplier();
-        float yawStep = (float) (deltaX * sensitivity * 0.28D);
-        float pitchStep = (float) (deltaY * sensitivity * 0.28D);
+        double scaleCompensation = uiScale <= 0.0D ? 1.0D : 1.0D / uiScale;
+        float yawStep = (float) (deltaX * sensitivity * scaleCompensation * 0.75D);
+        float pitchStep = (float) (deltaY * sensitivity * scaleCompensation * 0.75D);
         minecraft.player.setYRot(minecraft.player.getYRot() + yawStep);
         minecraft.player.setXRot(clampPitch(minecraft.player.getXRot() + pitchStep));
         minecraft.player.yRotO = minecraft.player.getYRot();
         minecraft.player.xRotO = minecraft.player.getXRot();
     }
 
-    private boolean handleNavigationKey(int keyCode, boolean pressed) {
+    private boolean handleNavigationKey(int keyCode, int scanCode, boolean pressed) {
         if (!session.isNavigating()) {
             return false;
         }
-        switch (keyCode) {
-            case GLFW.GLFW_KEY_W -> navForward = pressed;
-            case GLFW.GLFW_KEY_S -> navBack = pressed;
-            case GLFW.GLFW_KEY_A -> navLeft = pressed;
-            case GLFW.GLFW_KEY_D -> navRight = pressed;
-            case GLFW.GLFW_KEY_SPACE -> navUp = pressed;
-            case GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_RIGHT_CONTROL -> navDown = pressed;
-            case GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_RIGHT_SHIFT -> navFast = pressed;
-            default -> {
-                return false;
-            }
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.options.keyUp.matches(keyCode, scanCode)) {
+            navForward = pressed;
+        } else if (minecraft.options.keyDown.matches(keyCode, scanCode)) {
+            navBack = pressed;
+        } else if (minecraft.options.keyLeft.matches(keyCode, scanCode)) {
+            navLeft = pressed;
+        } else if (minecraft.options.keyRight.matches(keyCode, scanCode)) {
+            navRight = pressed;
+        } else if (minecraft.options.keyJump.matches(keyCode, scanCode)) {
+            navUp = pressed;
+        } else if (minecraft.options.keyShift.matches(keyCode, scanCode)) {
+            navDown = pressed;
+        } else if (minecraft.options.keySprint.matches(keyCode, scanCode)) {
+            navFast = pressed;
+        } else {
+            return false;
         }
         return true;
     }
@@ -1458,14 +1842,13 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         LocalPlayer player = minecraft.player;
-        long window = minecraft.getWindow().getWindow();
-        boolean forwardPressed = navForward || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_W);
-        boolean backPressed = navBack || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_S);
-        boolean leftPressed = navLeft || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_A);
-        boolean rightPressed = navRight || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_D);
-        boolean upPressed = navUp || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_SPACE);
-        boolean downPressed = navDown || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL) || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean fastPressed = navFast || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT);
+        boolean forwardPressed = navForward || minecraft.options.keyUp.isDown();
+        boolean backPressed = navBack || minecraft.options.keyDown.isDown();
+        boolean leftPressed = navLeft || minecraft.options.keyLeft.isDown();
+        boolean rightPressed = navRight || minecraft.options.keyRight.isDown();
+        boolean upPressed = navUp || minecraft.options.keyJump.isDown();
+        boolean downPressed = navDown || minecraft.options.keyShift.isDown();
+        boolean fastPressed = navFast || minecraft.options.keySprint.isDown();
         float forwardImpulse = 0.0F;
         float strafeImpulse = 0.0F;
         float verticalImpulse = 0.0F;
@@ -1497,6 +1880,57 @@ public final class PcgEditorScreen extends Screen {
             player.getAbilities().setFlyingSpeed(targetFlyingSpeed);
             player.onUpdateAbilities();
         }
+        double elapsedSeconds = navigationElapsedSeconds();
+        updateNavigationCameraVelocity(player, forwardImpulse, strafeImpulse, verticalImpulse, fastPressed, elapsedSeconds);
+    }
+
+    private double navigationElapsedSeconds() {
+        long now = System.nanoTime();
+        if (navigationLastNanos == 0L) {
+            navigationLastNanos = now;
+            return 0.0D;
+        }
+        double elapsedSeconds = (now - navigationLastNanos) / 1_000_000_000.0D;
+        navigationLastNanos = now;
+        return Math.min(0.1D, Math.max(0.0D, elapsedSeconds));
+    }
+
+    private void updateNavigationCameraVelocity(LocalPlayer player, float forwardImpulse, float strafeImpulse, float verticalImpulse,
+                                                boolean fastPressed, double elapsedSeconds) {
+        Vec3 forward = player.getLookAngle();
+        Vec3 flatForward = new Vec3(forward.x, 0.0D, forward.z);
+        if (flatForward.lengthSqr() < 1.0E-6D) {
+            flatForward = new Vec3(0.0D, 0.0D, 1.0D);
+        } else {
+            flatForward = flatForward.normalize();
+        }
+        Vec3 right = new Vec3(-flatForward.z, 0.0D, flatForward.x);
+        Vec3 input = flatForward.scale(forwardImpulse)
+                .subtract(right.scale(strafeImpulse))
+                .add(0.0D, verticalImpulse, 0.0D);
+        if (input.lengthSqr() > 1.0D) {
+            input = input.normalize();
+        }
+        double maxSpeed = fastPressed ? 28.0D : 11.0D;
+        double acceleration = fastPressed ? 72.0D : 36.0D;
+        if (input.lengthSqr() > 0.0D) {
+            navigationVelocity = navigationVelocity.add(input.scale(acceleration * elapsedSeconds));
+        } else {
+            navigationVelocity = navigationVelocity.scale(Math.pow(0.001D, elapsedSeconds));
+            if (navigationVelocity.lengthSqr() < 0.0004D) {
+                navigationVelocity = Vec3.ZERO;
+            }
+        }
+        if (navigationVelocity.lengthSqr() > maxSpeed * maxSpeed) {
+            navigationVelocity = navigationVelocity.normalize().scale(maxSpeed);
+        }
+        if (navigationVelocity.lengthSqr() == 0.0D) {
+            player.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        Vec3 destination = player.position().add(navigationVelocity.scale(elapsedSeconds));
+        player.moveTo(destination.x, destination.y, destination.z, player.getYRot(), player.getXRot());
+        player.setDeltaMovement(Vec3.ZERO);
     }
 
     private void resetNavigationInput() {
@@ -1510,6 +1944,7 @@ public final class PcgEditorScreen extends Screen {
         player.input.jumping = false;
         player.input.shiftKeyDown = false;
         player.setSprinting(false);
+        navigationVelocity = Vec3.ZERO;
         if (player.getAbilities().getFlyingSpeed() != session.getEditorNavigationFlySpeed()) {
             player.getAbilities().setFlyingSpeed(session.getEditorNavigationFlySpeed());
             player.onUpdateAbilities();
@@ -1741,39 +2176,84 @@ public final class PcgEditorScreen extends Screen {
         }
 
         if (session.getSelection() == PcgEditorSelection.REGION) {
-            BoxRegionSelection region = ClientSelectionState.getRegionSelection();
-            if (!region.isComplete()) {
-                session.log(PcgEditorLogEntry.Severity.ERROR, "Region transform requires a complete Box Region.");
-                return;
+            if (!moveSelectedControlPoint(new BlockPos(x, y, z), true)) {
+                session.log(PcgEditorLogEntry.Severity.ERROR, "No box region corner is selected.");
             }
-            int x2 = x + region.getWidth() - 1;
-            int y2 = y + region.getHeight() - 1;
-            int z2 = z + region.getDepth() - 1;
-            runAction("blockwright region set " + x + " " + y + " " + z + " " + x2 + " " + y2 + " " + z2,
-                    PcgEditorLogEntry.Severity.INFO, "Moved Box Region_01.");
-            session.setSelection(PcgEditorSelection.REGION);
             rebuildUi();
             return;
         }
 
         if (session.getSelection() == PcgEditorSelection.SPLINE_POINT) {
-            SplineSelection spline = ClientSelectionState.getSplineSelection();
-            int pointIndex = session.getSelectedSplinePointIndex();
-            if (pointIndex < 0 || pointIndex >= spline.getPoints().size()) {
+            if (!moveSelectedControlPoint(new BlockPos(x, y, z), true)) {
                 session.log(PcgEditorLogEntry.Severity.ERROR, "No spline point is selected.");
-                return;
             }
-            List<BlockPos> rebuiltPoints = new ArrayList<>(spline.getPoints());
-            rebuiltPoints.set(pointIndex, new BlockPos(x, y, z));
-            runAction("blockwright spline clear", PcgEditorLogEntry.Severity.INFO, "Rebuilt spline path.");
-            for (BlockPos point : rebuiltPoints) {
-                sendCommand("blockwright spline addpos " + point.getX() + " " + point.getY() + " " + point.getZ());
-            }
-            session.setSelection(PcgEditorSelection.SPLINE_POINT);
-            session.setSelectedSplinePointIndex(pointIndex);
-            session.log(PcgEditorLogEntry.Severity.INFO, "Moved spline point #" + pointIndex + ".");
             rebuildUi();
         }
+    }
+
+    private boolean moveSelectedControlPoint(BlockPos newPos, boolean logChange) {
+        return switch (session.getSelection()) {
+            case REGION -> moveSelectedRegionCorner(newPos, logChange);
+            case SPLINE_POINT -> moveSelectedSplinePoint(newPos, logChange);
+            default -> false;
+        };
+    }
+
+    private boolean moveSelectedRegionCorner(BlockPos newPos, boolean logChange) {
+        BlockPos currentCorner = session.getSelectedRegionCorner();
+        int cornerIndex = session.getSelectedRegionCornerIndex();
+        if (currentCorner == null || cornerIndex < 0 || currentCorner.equals(newPos)) {
+            return false;
+        }
+        sendCommand("blockwright region " + (cornerIndex == 0 ? "setpos1 " : "setpos2 ")
+                + newPos.getX() + " " + newPos.getY() + " " + newPos.getZ());
+        session.setSelection(PcgEditorSelection.REGION);
+        session.setSelectedRegionCornerIndex(cornerIndex);
+        if (logChange) {
+            session.log(PcgEditorLogEntry.Severity.INFO, "Moved Box Region_01 corner P" + (cornerIndex + 1) + ".");
+        }
+        return true;
+    }
+
+    private boolean moveSelectedSplinePoint(BlockPos newPos, boolean logChange) {
+        SplineSelection spline = ClientSelectionState.getSplineSelection();
+        int pointIndex = session.getSelectedSplinePointIndex();
+        if (pointIndex < 0 || pointIndex >= spline.getPoints().size() || newPos.equals(spline.getPoints().get(pointIndex))) {
+            return false;
+        }
+        List<BlockPos> rebuiltPoints = new ArrayList<>(spline.getPoints());
+        rebuiltPoints.set(pointIndex, newPos);
+        sendCommand("blockwright spline clear");
+        for (BlockPos point : rebuiltPoints) {
+            sendCommand("blockwright spline addpos " + point.getX() + " " + point.getY() + " " + point.getZ());
+        }
+        session.setSelection(PcgEditorSelection.SPLINE_POINT);
+        session.setSelectedSplinePointIndex(pointIndex);
+        if (logChange) {
+            session.log(PcgEditorLogEntry.Severity.INFO, "Moved spline point #" + pointIndex + ".");
+        }
+        return true;
+    }
+
+    private void logControlPointMove() {
+        if (session.getSelection() == PcgEditorSelection.REGION) {
+            int cornerIndex = session.getSelectedRegionCornerIndex();
+            if (cornerIndex >= 0) {
+                session.log(PcgEditorLogEntry.Severity.INFO, "Moved Box Region_01 corner P" + (cornerIndex + 1) + ".");
+            }
+            return;
+        }
+        if (session.getSelection() == PcgEditorSelection.SPLINE_POINT && session.getSelectedSplinePointIndex() >= 0) {
+            session.log(PcgEditorLogEntry.Severity.INFO, "Moved spline point #" + session.getSelectedSplinePointIndex() + ".");
+        }
+    }
+
+    private BlockPos getSelectedControlPoint() {
+        return switch (session.getSelection()) {
+            case REGION -> session.getSelectedRegionCorner();
+            case SPLINE_POINT -> session.getSelectedSplinePoint();
+            default -> null;
+        };
     }
 
     private void sendCommand(String command) {
@@ -1799,6 +2279,25 @@ public final class PcgEditorScreen extends Screen {
             return spline.getPoints().size() >= 2;
         }
         return false;
+    }
+
+    private int snapAxisOffset(double worldOffset) {
+        int snap = Math.max(1, session.getSnapStep());
+        return Math.round((float) (worldOffset / snap)) * snap;
+    }
+
+    private double distanceToSegment(double px, double py, double ax, double ay, double bx, double by) {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= 1.0E-6D) {
+            return Math.hypot(px - ax, py - ay);
+        }
+        double t = ((px - ax) * dx + (py - ay) * dy) / lengthSquared;
+        t = Math.max(0.0D, Math.min(1.0D, t));
+        double nearestX = ax + dx * t;
+        double nearestY = ay + dy * t;
+        return Math.hypot(px - nearestX, py - nearestY);
     }
 
     private void exportRegionAsModule() {
@@ -2056,7 +2555,8 @@ public final class PcgEditorScreen extends Screen {
 
     private BlockPos currentTransformOrigin() {
         if (session.getSelection() == PcgEditorSelection.REGION) {
-            return ClientSelectionState.getRegionSelection().getMin();
+            BlockPos selectedCorner = session.getSelectedRegionCorner();
+            return selectedCorner == null ? BlockPos.ZERO : selectedCorner;
         }
         if (session.getSelection() == PcgEditorSelection.SPLINE_POINT) {
             return session.getSelectedSplinePoint();
@@ -2457,6 +2957,12 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private record ParameterField(String key, int rowIndex, EditorField field) {
+    }
+
+    private record ScreenProjection(double screenX, double screenY, double depth) {
+    }
+
+    private record ViewportSelectionTarget(PcgEditorSelection selection, int regionCornerIndex, int splinePointIndex, String logMessage) {
     }
 
     private enum DragHandle {

@@ -50,6 +50,16 @@ public final class BlockwrightCommands {
                         .executes(command -> setRegionCorner(command.getSource(), true)))
                 .then(Commands.literal("pos2")
                         .executes(command -> setRegionCorner(command.getSource(), false)))
+                .then(Commands.literal("setpos1")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                .executes(command -> setRegionCornerCoordinates(command, true))))))
+                .then(Commands.literal("setpos2")
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                .executes(command -> setRegionCornerCoordinates(command, false))))))
                 .then(Commands.literal("clear")
                         .executes(command -> clearRegion(command.getSource())))
                 .then(Commands.literal("set")
@@ -196,9 +206,8 @@ public final class BlockwrightCommands {
             return 1;
         }
 
-        GameType restoreGameType = session.getEditorOriginalGameType();
-        session.exitEditorSpectatorMode();
-        player.setGameMode(restoreGameType == null ? GameType.CREATIVE : restoreGameType);
+        GameType restoreGameType = session.consumeEditorRestoreGameType();
+        player.setGameMode(restoreGameType);
         send(source, "Exited Blockwright editor spectator mode.");
         return 1;
     }
@@ -396,6 +405,28 @@ public final class BlockwrightCommands {
         send(source, "Region set: "
                 + session.getRegionSelection().getMin().toShortString()
                 + " -> " + session.getRegionSelection().getMax().toShortString());
+        return 1;
+    }
+
+    private static int setRegionCornerCoordinates(CommandContext<CommandSourceStack> command, boolean firstCorner) {
+        CommandSourceStack source = command.getSource();
+        ServerPlayer player = getPlayer(source);
+        if (player == null) {
+            return 0;
+        }
+        PlayerSession session = Blockwright.getSessionManager().getOrCreate(player);
+        net.minecraft.core.BlockPos point = new net.minecraft.core.BlockPos(
+                IntegerArgumentType.getInteger(command, "x"),
+                IntegerArgumentType.getInteger(command, "y"),
+                IntegerArgumentType.getInteger(command, "z")
+        );
+        if (firstCorner) {
+            session.getRegionSelection().setPos1(point);
+        } else {
+            session.getRegionSelection().setPos2(point);
+        }
+        session.markPreviewStale();
+        send(source, "Region " + (firstCorner ? "pos1" : "pos2") + " set to " + point.toShortString() + ".");
         return 1;
     }
 

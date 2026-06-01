@@ -25,6 +25,8 @@ public final class BlockwrightSelectionRenderer {
     private static final double REGION_PADDING = 0.002D;
     private static final double SPLINE_POINT_PADDING = 0.12D;
     private static final double GIZMO_LENGTH = 2.0D;
+    private static final double GIZMO_ARROW_LENGTH = 0.38D;
+    private static final double GIZMO_ARROW_HALF_BASE = 0.12D;
 
     private BlockwrightSelectionRenderer() {
     }
@@ -37,10 +39,12 @@ public final class BlockwrightSelectionRenderer {
 
         BoxRegionSelection regionSelection = ClientSelectionState.getRegionSelection();
         SplineSelection splineSelection = ClientSelectionState.getSplineSelection();
+        BlockPos hoverPlacement = ClientSelectionState.getHoverPlacement();
         PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
         PcgEditorSession editorSession = PcgEditorSession.get();
         if (regionSelection.getPos1() == null && regionSelection.getPos2() == null
                 && splineSelection.getPoints().isEmpty()
+                && hoverPlacement == null
                 && (previewPlan == null || previewPlan.getPlannedBlocks().isEmpty())) {
             return;
         }
@@ -53,9 +57,12 @@ public final class BlockwrightSelectionRenderer {
 
         renderPreview(minecraft, previewPlan, poseStack, bufferSource);
         VertexConsumer lineConsumer = bufferSource.getBuffer(RenderType.lines());
-        renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F);
-        renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F);
+        renderCorner(lineConsumer, poseStack, regionSelection.getPos1(), 0.95F, 0.78F, 0.24F,
+                editorSession.getSelection() == PcgEditorSelection.REGION && editorSession.getSelectedRegionCornerIndex() == 0);
+        renderCorner(lineConsumer, poseStack, regionSelection.getPos2(), 0.24F, 0.78F, 0.95F,
+                editorSession.getSelection() == PcgEditorSelection.REGION && editorSession.getSelectedRegionCornerIndex() == 1);
         renderSpline(lineConsumer, poseStack, splineSelection, editorSession);
+        renderHoverPlacement(lineConsumer, poseStack, hoverPlacement);
         renderPreviewBounds(lineConsumer, poseStack, previewPlan);
         renderTransformGizmo(lineConsumer, poseStack, editorSession);
 
@@ -144,7 +151,8 @@ public final class BlockwrightSelectionRenderer {
         }
     }
 
-    private static void renderCorner(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, float red, float green, float blue) {
+    private static void renderCorner(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos,
+                                     float red, float green, float blue, boolean selected) {
         if (pos == null) {
             return;
         }
@@ -159,9 +167,9 @@ public final class BlockwrightSelectionRenderer {
                         pos.getY() + 1 + CORNER_PADDING,
                         pos.getZ() + 1 + CORNER_PADDING
                 ),
-                red,
-                green,
-                blue,
+                selected ? Math.min(1.0F, red + 0.10F) : red,
+                selected ? Math.min(1.0F, green + 0.12F) : green,
+                selected ? Math.min(1.0F, blue + 0.14F) : blue,
                 1.0F
         );
     }
@@ -181,6 +189,28 @@ public final class BlockwrightSelectionRenderer {
                 selected ? 0.98F : 0.96F,
                 selected ? 0.88F : 0.38F,
                 selected ? 0.98F : 0.22F,
+                1.0F
+        );
+    }
+
+    private static void renderHoverPlacement(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos) {
+        if (pos == null) {
+            return;
+        }
+        LevelRenderer.renderLineBox(
+                poseStack,
+                lineConsumer,
+                new AABB(
+                        pos.getX() + 0.05D,
+                        pos.getY() + 0.05D,
+                        pos.getZ() + 0.05D,
+                        pos.getX() + 0.95D,
+                        pos.getY() + 0.95D,
+                        pos.getZ() + 0.95D
+                ),
+                0.98F,
+                0.98F,
+                0.56F,
                 1.0F
         );
     }
@@ -215,9 +245,52 @@ public final class BlockwrightSelectionRenderer {
                 && session.getSelection() != PcgEditorSelection.REGION && session.getSelection() != PcgEditorSelection.SPLINE_POINT)) {
             return;
         }
-        drawAxis(lineConsumer, poseStack, focus, focus.add(GIZMO_LENGTH, 0.0D, 0.0D), 0.96F, 0.26F, 0.24F);
-        drawAxis(lineConsumer, poseStack, focus, focus.add(0.0D, GIZMO_LENGTH, 0.0D), 0.34F, 0.95F, 0.38F);
-        drawAxis(lineConsumer, poseStack, focus, focus.add(0.0D, 0.0D, GIZMO_LENGTH), 0.32F, 0.56F, 0.96F);
+        drawArrowAxis(lineConsumer, poseStack, focus, PcgEditorAxis.X, 0.96F, 0.26F, 0.24F, session);
+        drawArrowAxis(lineConsumer, poseStack, focus, PcgEditorAxis.Y, 0.34F, 0.95F, 0.38F, session);
+        drawArrowAxis(lineConsumer, poseStack, focus, PcgEditorAxis.Z, 0.32F, 0.56F, 0.96F, session);
+    }
+
+    private static void drawArrowAxis(VertexConsumer lineConsumer, PoseStack poseStack, Vec3 origin, PcgEditorAxis axis,
+                                      float red, float green, float blue, PcgEditorSession session) {
+        boolean hovered = session.getHoveredGizmoAxis() == axis;
+        boolean active = session.getActiveGizmoAxis() == axis;
+        float axisRed = active ? 1.0F : hovered ? Math.min(1.0F, red + 0.28F) : red;
+        float axisGreen = active ? 1.0F : hovered ? Math.min(1.0F, green + 0.28F) : green;
+        float axisBlue = active ? 0.82F : hovered ? Math.min(1.0F, blue + 0.20F) : blue;
+        Vec3 direction = new Vec3(axis.stepX(), axis.stepY(), axis.stepZ());
+        Vec3 tip = origin.add(direction.scale(GIZMO_LENGTH));
+        drawAxis(lineConsumer, poseStack, origin, tip, axisRed, axisGreen, axisBlue);
+        drawArrowHead(lineConsumer, poseStack, axis, tip, axisRed, axisGreen, axisBlue);
+    }
+
+    private static void drawArrowHead(VertexConsumer lineConsumer, PoseStack poseStack, PcgEditorAxis axis, Vec3 tip,
+                                      float red, float green, float blue) {
+        Vec3 axisDirection = new Vec3(axis.stepX(), axis.stepY(), axis.stepZ());
+        Vec3 baseCenter = tip.subtract(axisDirection.scale(GIZMO_ARROW_LENGTH));
+        Vec3 perpA;
+        Vec3 perpB;
+        if (axis == PcgEditorAxis.X) {
+            perpA = new Vec3(0.0D, GIZMO_ARROW_HALF_BASE, 0.0D);
+            perpB = new Vec3(0.0D, 0.0D, GIZMO_ARROW_HALF_BASE);
+        } else if (axis == PcgEditorAxis.Y) {
+            perpA = new Vec3(GIZMO_ARROW_HALF_BASE, 0.0D, 0.0D);
+            perpB = new Vec3(0.0D, 0.0D, GIZMO_ARROW_HALF_BASE);
+        } else {
+            perpA = new Vec3(GIZMO_ARROW_HALF_BASE, 0.0D, 0.0D);
+            perpB = new Vec3(0.0D, GIZMO_ARROW_HALF_BASE, 0.0D);
+        }
+        Vec3 c1 = baseCenter.add(perpA).add(perpB);
+        Vec3 c2 = baseCenter.add(perpA).subtract(perpB);
+        Vec3 c3 = baseCenter.subtract(perpA).subtract(perpB);
+        Vec3 c4 = baseCenter.subtract(perpA).add(perpB);
+        drawAxis(lineConsumer, poseStack, c1, tip, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c2, tip, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c3, tip, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c4, tip, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c1, c2, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c2, c3, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c3, c4, red, green, blue);
+        drawAxis(lineConsumer, poseStack, c4, c1, red, green, blue);
     }
 
     private static void drawAxis(VertexConsumer lineConsumer, PoseStack poseStack, Vec3 from, Vec3 to, float red, float green, float blue) {

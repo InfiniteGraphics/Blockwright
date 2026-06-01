@@ -6,10 +6,13 @@ import top.huliawsl.blockwright.selection.SplineSelection;
 
 public final class ClientSelectionState {
     private static final String REGION_SET_PREFIX = "blockwright region set ";
+    private static final String REGION_SETPOS1_PREFIX = "blockwright region setpos1 ";
+    private static final String REGION_SETPOS2_PREFIX = "blockwright region setpos2 ";
     private static final String SPLINE_ADDPOS_PREFIX = "blockwright spline addpos ";
     private static final String SPLINE_REMOVE_PREFIX = "blockwright spline remove ";
     private static final BoxRegionSelection REGION_SELECTION = new BoxRegionSelection();
     private static final SplineSelection SPLINE_SELECTION = new SplineSelection();
+    private static BlockPos hoverPlacement;
 
     private ClientSelectionState() {
     }
@@ -33,6 +36,19 @@ public final class ClientSelectionState {
     public static void clearAll() {
         clearRegion();
         clearSpline();
+        clearHoverPlacement();
+    }
+
+    public static BlockPos getHoverPlacement() {
+        return hoverPlacement;
+    }
+
+    public static void setHoverPlacement(BlockPos pos) {
+        hoverPlacement = pos == null ? null : pos.immutable();
+    }
+
+    public static void clearHoverPlacement() {
+        hoverPlacement = null;
     }
 
     public static void captureCommand(String command, BlockPos playerPos) {
@@ -79,6 +95,16 @@ public final class ClientSelectionState {
             ClientPreviewState.markStale();
             return;
         }
+        if (command.startsWith(REGION_SETPOS1_PREFIX)) {
+            captureRegionCorner(command, REGION_SETPOS1_PREFIX, true);
+            ClientPreviewState.markStale();
+            return;
+        }
+        if (command.startsWith(REGION_SETPOS2_PREFIX)) {
+            captureRegionCorner(command, REGION_SETPOS2_PREFIX, false);
+            ClientPreviewState.markStale();
+            return;
+        }
         if (command.startsWith(SPLINE_ADDPOS_PREFIX)) {
             captureSplineAddPos(command);
             ClientPreviewState.markStale();
@@ -107,6 +133,27 @@ public final class ClientSelectionState {
                     Integer.parseInt(parts[4]),
                     Integer.parseInt(parts[5])
             ));
+        } catch (NumberFormatException ignored) {
+        }
+    }
+
+    private static void captureRegionCorner(String command, String prefix, boolean firstCorner) {
+        String[] parts = command.substring(prefix.length()).trim().split("\\s+");
+        if (parts.length != 3) {
+            return;
+        }
+
+        try {
+            BlockPos pos = new BlockPos(
+                    Integer.parseInt(parts[0]),
+                    Integer.parseInt(parts[1]),
+                    Integer.parseInt(parts[2])
+            );
+            if (firstCorner) {
+                REGION_SELECTION.setPos1(pos);
+            } else {
+                REGION_SELECTION.setPos2(pos);
+            }
         } catch (NumberFormatException ignored) {
         }
     }

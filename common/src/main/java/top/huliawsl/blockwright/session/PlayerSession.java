@@ -67,5 +67,12 @@ public final class PlayerSession {
 
     public void exitEditorSpectatorMode() {
         editorSpectatorMode = false;
+        editorOriginalGameType = GameType.CREATIVE;
+    }
+
+    public GameType consumeEditorRestoreGameType() {
+        GameType restoreGameType = editorOriginalGameType == null ? GameType.CREATIVE : editorOriginalGameType;
+        exitEditorSpectatorMode();
+        return restoreGameType;
     }
 }
