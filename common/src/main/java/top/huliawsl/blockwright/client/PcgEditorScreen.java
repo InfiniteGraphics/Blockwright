@@ -2082,12 +2082,43 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void updateUiMetrics() {
-        uiScale = 1.0D;
-        uiWidth = this.width;
-        uiHeight = this.height;
-        uiOffsetX = 0.0D;
-        uiOffsetY = 0.0D;
+        int availableWidth = Math.max(1, this.width);
+        int availableHeight = Math.max(1, this.height);
+        int minimumWidth = minimumLayoutWidth();
+        int minimumHeight = minimumLayoutHeight();
+        uiScale = Math.min(1.0D, Math.min((double) availableWidth / minimumWidth, (double) availableHeight / minimumHeight));
+        uiWidth = Math.max(minimumWidth, (int) Math.floor(availableWidth / uiScale));
+        uiHeight = Math.max(minimumHeight, (int) Math.floor(availableHeight / uiScale));
+        uiOffsetX = (availableWidth - uiWidth * uiScale) / 2.0D;
+        uiOffsetY = (availableHeight - uiHeight * uiScale) / 2.0D;
         uiMetrics = PcgUiMetrics.from(uiWidth, uiHeight, this.font.lineHeight);
+    }
+
+    private int minimumLayoutWidth() {
+        int unit = metricUnit();
+        int gap = metricGap(unit);
+        int leftPanel = unit * 8;
+        int viewportArea = unit * 28;
+        int detailsPanel = unit * 18;
+        int previewPanel = unit * 14;
+        return leftPanel + viewportArea + detailsPanel + previewPanel + gap * 4 + OUTER_PAD * 2;
+    }
+
+    private int minimumLayoutHeight() {
+        int unit = metricUnit();
+        int gap = metricGap(unit);
+        int topBarHeight = unit * 4;
+        int contentHeight = unit * 18;
+        int bottomBarHeight = unit * 8;
+        return topBarHeight + contentHeight + bottomBarHeight + gap * 2 + OUTER_PAD * 2;
+    }
+
+    private int metricUnit() {
+        return Math.max(10, this.font.lineHeight + 3);
+    }
+
+    private int metricGap(int unit) {
+        return Math.max(1, unit / 6);
     }
 
     private void beginUi(GuiGraphics guiGraphics) {
