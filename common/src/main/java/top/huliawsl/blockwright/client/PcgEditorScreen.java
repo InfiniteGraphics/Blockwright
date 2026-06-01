@@ -565,6 +565,9 @@ public final class PcgEditorScreen extends Screen {
         int gap = uiMetrics.gap * 3;
         int toolHeight = computeToolButtonHeight();
         for (PcgEditorTool tool : PcgEditorTool.values()) {
+            if (!shouldShowToolButton(tool)) {
+                continue;
+            }
             boolean disabled = tool == PcgEditorTool.PAINT_MASK;
             boolean selected = tool == session.getActiveTool();
             addButton("tool_" + tool.name().toLowerCase(Locale.ROOT), x, y, buttonWidth, toolHeight,
@@ -2574,7 +2577,21 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private int computeToolButtonHeight() {
-        return PcgToolPaletteLayout.computeButtonHeight(uiMetrics, leftBar.height, PcgEditorTool.values().length);
+        return PcgToolPaletteLayout.computeButtonHeight(uiMetrics, leftBar.height, visibleToolButtonCount());
+    }
+
+    private int visibleToolButtonCount() {
+        int count = 0;
+        for (PcgEditorTool tool : PcgEditorTool.values()) {
+            if (shouldShowToolButton(tool)) {
+                count++;
+            }
+        }
+        return Math.max(1, count);
+    }
+
+    private boolean shouldShowToolButton(PcgEditorTool tool) {
+        return tool != PcgEditorTool.SELECT && tool != PcgEditorTool.TRANSFORM;
     }
 
     private PcgTopBarLayoutSpec computeTopBarLayout() {
