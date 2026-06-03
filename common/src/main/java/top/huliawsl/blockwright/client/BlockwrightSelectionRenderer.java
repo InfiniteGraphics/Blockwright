@@ -64,6 +64,7 @@ public final class BlockwrightSelectionRenderer {
         renderSpline(lineConsumer, poseStack, splineSelection, editorSession);
         renderHoverPlacement(lineConsumer, poseStack, hoverPlacement);
         renderPreviewBounds(lineConsumer, poseStack, previewPlan);
+        renderPreviewDebug(lineConsumer, poseStack, previewPlan);
         renderTransformGizmo(lineConsumer, poseStack, editorSession);
 
         if (regionSelection.isComplete()) {
@@ -134,6 +135,44 @@ public final class BlockwrightSelectionRenderer {
         LevelRenderer.renderLineBox(poseStack, lineConsumer, plan.getBounds().inflate(REGION_PADDING), red, green, blue, 1.0F);
     }
 
+    private static void renderPreviewDebug(VertexConsumer lineConsumer, PoseStack poseStack, PreviewPlan plan) {
+        if (plan == null) {
+            return;
+        }
+        for (var line : plan.getDebugLines()) {
+            drawDebugLine(lineConsumer, poseStack, line.getFrom(), line.getTo(), line.getColor());
+        }
+        double size = 0.12D;
+        for (var point : plan.getDebugPoints()) {
+            Vec3 p = point.getPosition();
+            int color = point.getColor();
+            drawDebugLine(lineConsumer, poseStack, p.add(-size, 0, 0), p.add(size, 0, 0), color);
+            drawDebugLine(lineConsumer, poseStack, p.add(0, -size, 0), p.add(0, size, 0), color);
+            drawDebugLine(lineConsumer, poseStack, p.add(0, 0, -size), p.add(0, 0, size), color);
+        }
+    }
+
+    private static void drawDebugLine(VertexConsumer lineConsumer, PoseStack poseStack, Vec3 from, Vec3 to, int argb) {
+        Vector3f normal = new Vector3f((float) (to.x - from.x), (float) (to.y - from.y), (float) (to.z - from.z));
+        if (normal.lengthSquared() == 0.0F) {
+            return;
+        }
+        normal.normalize();
+        float alpha = ((argb >>> 24) & 0xFF) / 255.0F;
+        float red = ((argb >>> 16) & 0xFF) / 255.0F;
+        float green = ((argb >>> 8) & 0xFF) / 255.0F;
+        float blue = (argb & 0xFF) / 255.0F;
+        PoseStack.Pose pose = poseStack.last();
+        lineConsumer.vertex(pose.pose(), (float) from.x, (float) from.y, (float) from.z)
+                .color(red, green, blue, alpha)
+                .normal(pose.normal(), normal.x(), normal.y(), normal.z())
+                .endVertex();
+        lineConsumer.vertex(pose.pose(), (float) to.x, (float) to.y, (float) to.z)
+                .color(red, green, blue, alpha)
+                .normal(pose.normal(), normal.x(), normal.y(), normal.z())
+                .endVertex();
+    }
+
     private static void renderSpline(VertexConsumer lineConsumer, PoseStack poseStack, SplineSelection splineSelection, PcgEditorSession session) {
         if (splineSelection.getPoints().isEmpty()) {
             return;
@@ -173,6 +212,7 @@ public final class BlockwrightSelectionRenderer {
                 1.0F
         );
     }
+
 
     private static void renderSplinePoint(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos pos, boolean selected) {
         LevelRenderer.renderLineBox(
@@ -214,6 +254,7 @@ public final class BlockwrightSelectionRenderer {
                 1.0F
         );
     }
+
 
     private static void renderSplineSegment(VertexConsumer lineConsumer, PoseStack poseStack, BlockPos from, BlockPos to) {
         Vec3 fromCenter = Vec3.atCenterOf(from);

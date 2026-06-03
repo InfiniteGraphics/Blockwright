@@ -30,7 +30,7 @@ public final class PcgEditorSession {
     private static final PcgEditorSession INSTANCE = new PcgEditorSession();
 
     private final Deque<PcgEditorLogEntry> logEntries = new ArrayDeque<>();
-    private PcgEditorTool activeTool = PcgEditorTool.BOX_REGION;
+    private PcgEditorTool activeTool = PcgEditorTool.PRESET_LIBRARY;
     private PcgEditorSelection selection = PcgEditorSelection.NONE;
     private boolean navigating;
     private boolean open;
@@ -458,6 +458,9 @@ public final class PcgEditorSession {
     }
 
     public PcgEditorPreviewState getPreviewState() {
+        if (ClientPreviewState.isAwaitingServerPreview()) {
+            return PcgEditorPreviewState.GENERATING;
+        }
         PreviewPlan previewPlan = ClientPreviewState.getPreviewPlan();
         if (previewPlan == null) {
             return PcgEditorPreviewState.NONE;

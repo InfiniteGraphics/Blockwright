@@ -22,6 +22,7 @@ import top.huliawsl.blockwright.preview.PreviewPlan;
 import top.huliawsl.blockwright.preset.model.PresetDefinition;
 import top.huliawsl.blockwright.preset.model.PresetInputDefinition;
 import top.huliawsl.blockwright.preset.model.PresetParameterDefinition;
+import top.huliawsl.blockwright.rule.model.RuleDefinition;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 import top.huliawsl.blockwright.selection.SplineSelection;
 import top.huliawsl.blockwright.util.ValidationIssue;
@@ -62,6 +63,7 @@ public final class PcgEditorScreen extends Screen {
     private static final int TEXT_MAGENTA = 0xFFD786FF;
 
     private static final int OUTER_PAD = 0;
+    private static final String[] PRESET_CATEGORIES = {"All", "Buildings", "Roads", "Scatter", "Connectors", "Graph", "Legacy", "Broken"};
 
     private final PcgEditorSession session = PcgEditorSession.get();
     private final List<EditorButton> buttons = new ArrayList<>();
@@ -69,6 +71,8 @@ public final class PcgEditorScreen extends Screen {
     private final List<ParameterField> parameterFields = new ArrayList<>();
     private final Map<String, String> parameterOverrides = new LinkedHashMap<>();
     private final List<ModuleDefinition> visibleModules = new ArrayList<>();
+    private final PcgGraphEditorState graphEditorState = new PcgGraphEditorState();
+    private final List<PresetCardView> visiblePresetCards = new ArrayList<>();
 
     private LayoutRect topBar;
     private LayoutRect leftBar;
@@ -82,6 +86,9 @@ public final class PcgEditorScreen extends Screen {
     private LayoutRect moduleListViewport;
     private LayoutRect modulePreviewPanel;
     private LayoutRect messageLogRect;
+    private LayoutRect presetBrowserCanvas;
+    private LayoutRect presetCategoryPanel;
+    private LayoutRect presetListViewport;
     private LayoutRect inspectorBodyRect;
     private LayoutRect detailsSplitter;
     private LayoutRect previewSplitter;
@@ -106,6 +113,7 @@ public final class PcgEditorScreen extends Screen {
     private EditorButton deleteButton;
     private EditorButton clearPreviewButton;
     private EditorButton transformApplyButton;
+    private EditorButton presetUseButton;
 
     private EditorField focusedField;
     private EditorField transformXField;
@@ -114,11 +122,16 @@ public final class PcgEditorScreen extends Screen {
     private EditorField moduleStyleField;
     private EditorField moduleCategoryField;
     private EditorField moduleExportField;
+    private EditorField presetSearchField;
 
     private int inspectorScroll;
     private int maxInspectorScroll;
     private int moduleListScroll;
     private int maxModuleListScroll;
+    private int presetListScroll;
+    private int maxPresetListScroll;
+    private String presetSearchQuery = "";
+    private String presetCategory = "All";
     private int logScroll;
     private int maxLogScroll;
     private int uiWidth;
@@ -154,6 +167,9 @@ public final class PcgEditorScreen extends Screen {
 
     private boolean showBakeConfirm;
     private String uiSignature = "";
+    private String draggingGraphNodeId = "";
+    private int draggingGraphOffsetX;
+    private int draggingGraphOffsetY;
 
     public PcgEditorScreen() {
         super(Component.literal("PCG Editor"));
@@ -188,6 +204,7 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
         if (session.isNavigating()) {
             tickNavigationMovement();
         }
@@ -202,6 +219,11 @@ public final class PcgEditorScreen extends Screen {
         drawTopBar(guiGraphics, uiMouseX, uiMouseY);
         drawLeftBar(guiGraphics, uiMouseX, uiMouseY);
         drawViewport(guiGraphics);
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY) {
+            drawPresetLibrary(guiGraphics, uiMouseX, uiMouseY);
+        } else if (session.getActiveTool() == PcgEditorTool.NODE_GRAPH) {
+            drawNodeGraphEditor(guiGraphics, uiMouseX, uiMouseY);
+        }
         drawRightPanel(guiGraphics, uiMouseX, uiMouseY);
         drawBottomBar(guiGraphics);
         drawInteractiveElements(guiGraphics, uiMouseX, uiMouseY);
@@ -235,6 +257,12 @@ public final class PcgEditorScreen extends Screen {
         if (handleFieldClick(uiMouseX, uiMouseY)) {
             return true;
         }
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetListViewport != null && presetListViewport.contains(uiMouseX, uiMouseY)) {
+            return selectPresetCardAt(uiMouseY);
+        }
+        if (session.getActiveTool() == PcgEditorTool.NODE_GRAPH && viewport.contains(uiMouseX, uiMouseY)) {
+            return beginGraphNodeDrag(uiMouseX, uiMouseY);
+        }
         clearFocus();
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(uiMouseX, uiMouseY)) {
             return selectModuleFromList(uiMouseY);
@@ -250,6 +278,10 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && !draggingGraphNodeId.isBlank()) {
+            draggingGraphNodeId = "";
+            return true;
+        }
         if (button == 0 && activeGizmoAxis != PcgEditorAxis.NONE) {
             finishGizmoDrag();
             return true;
@@ -268,6 +300,10 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == 0 && !draggingGraphNodeId.isBlank()) {
+            updateGraphNodeDrag(toUiX(mouseX), toUiY(mouseY));
+            return true;
+        }
         if (button == 0 && activeGizmoAxis != PcgEditorAxis.NONE) {
             updateGizmoDrag(mouseX, mouseY);
             return true;
@@ -298,6 +334,10 @@ public final class PcgEditorScreen extends Screen {
         double uiMouseX = toUiX(mouseX);
         double uiMouseY = toUiY(mouseY);
         if (showBakeConfirm) {
+            return true;
+        }
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetListViewport != null && presetListViewport.contains(uiMouseX, uiMouseY)) {
+            presetListScroll = clamp(presetListScroll - (int) Math.signum(delta), 0, maxPresetListScroll);
             return true;
         }
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(uiMouseX, uiMouseY)) {
@@ -468,21 +508,25 @@ public final class PcgEditorScreen extends Screen {
         deleteButton = null;
         clearPreviewButton = null;
         transformApplyButton = null;
+        presetUseButton = null;
         transformXField = null;
         transformYField = null;
         transformZField = null;
         moduleStyleField = null;
         moduleCategoryField = null;
         moduleExportField = null;
+        presetSearchField = null;
         focusedField = null;
 
         updateUiMetrics();
         layoutRoot();
         buildTopToolbar();
         buildToolPalette();
-        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY) {
+            buildPresetLibraryControls();
+        } else if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             buildModuleLibraryControls();
-        } else {
+        } else if (session.getActiveTool() != PcgEditorTool.NODE_GRAPH) {
             buildInspectorControls();
         }
         buildModulePreviewControls();
@@ -523,13 +567,16 @@ public final class PcgEditorScreen extends Screen {
         modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
         inspectorBodyRect = new LayoutRect(detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.unit * 2 + uiMetrics.gap,
                 detailsPanel.width - uiMetrics.inset * 2,
-                Math.max(120, detailsPanel.height - 44));
+                Math.max(120, detailsPanel.height - uiMetrics.unit * 5));
         detailsSplitter = new LayoutRect(detailsPanel.x - uiMetrics.splitterSize / 2, workspace.y, uiMetrics.splitterSize, workspace.height);
         previewSplitter = new LayoutRect(previewDockPanel.x - uiMetrics.splitterSize / 2, workspace.y, uiMetrics.splitterSize, workspace.height);
         bottomSplitter = new LayoutRect(leftBar.right() + uiMetrics.gap, bottomBar.y - uiMetrics.splitterSize / 2,
                 uiWidth - (leftBar.right() + uiMetrics.gap), uiMetrics.splitterSize);
         parameterViewport = null;
         moduleListViewport = null;
+        presetBrowserCanvas = null;
+        presetCategoryPanel = null;
+        presetListViewport = null;
         messageLogRect = null;
     }
 
@@ -554,8 +601,13 @@ public final class PcgEditorScreen extends Screen {
 
         addButton("pack_prev", layout.packX(), layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, "<", false, false, () -> cyclePack(-1));
         addButton("pack_next", layout.packX() + layout.clusterWidth() - uiMetrics.unit * 2, layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, ">", false, false, () -> cyclePack(1));
-        addButton("preset_prev", layout.presetX(), layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, "<", false, false, () -> cyclePreset(-1));
-        addButton("preset_next", layout.presetX() + layout.clusterWidth() - uiMetrics.unit * 2, layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, ">", false, false, () -> cyclePreset(1));
+        addButton("preset_browser", layout.presetX(), layout.buttonY(), layout.clusterWidth(), uiMetrics.topButtonHeight,
+                topPresetButtonLabel(layout.clusterWidth()), session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY, false,
+                () -> {
+                    session.setActiveTool(PcgEditorTool.PRESET_LIBRARY);
+                    clearFocus();
+                    rebuildUi();
+                });
     }
 
     private void buildToolPalette() {
@@ -574,6 +626,60 @@ public final class PcgEditorScreen extends Screen {
                     toolLabel(tool), selected, disabled, () -> switchTool(tool));
             y += toolHeight + gap;
         }
+    }
+
+
+    private void buildPresetLibraryControls() {
+        visiblePresetCards.clear();
+        visiblePresetCards.addAll(collectVisiblePresetCards());
+        presetBrowserCanvas = computePresetBrowserCanvas();
+        int headerHeight = uiMetrics.unit * 5;
+        int maxCategoryWidth = Math.max(uiMetrics.unit * 8, presetBrowserCanvas.width / 3);
+        int categoryWidth = clamp(presetBrowserCanvas.width / 5, Math.min(uiMetrics.unit * 11, maxCategoryWidth), Math.min(uiMetrics.unit * 15, maxCategoryWidth));
+        presetCategoryPanel = new LayoutRect(presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + headerHeight,
+                categoryWidth, presetBrowserCanvas.height - headerHeight - uiMetrics.inset);
+        presetListViewport = new LayoutRect(presetCategoryPanel.right() + uiMetrics.gap * 4, presetCategoryPanel.y,
+                Math.max(1, presetBrowserCanvas.right() - presetCategoryPanel.right() - uiMetrics.gap * 4 - uiMetrics.inset),
+                presetCategoryPanel.height);
+
+        int maxSearchWidth = Math.max(uiMetrics.unit * 8, presetBrowserCanvas.width - uiMetrics.inset * 2);
+        int searchWidth = clamp(presetBrowserCanvas.width / 3, Math.min(uiMetrics.unit * 16, maxSearchWidth), Math.min(uiMetrics.unit * 26, maxSearchWidth));
+        presetSearchField = addField("preset_search", presetBrowserCanvas.right() - uiMetrics.inset - searchWidth,
+                presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 2, searchWidth, uiMetrics.fieldHeight, presetSearchQuery, false,
+                value -> {
+                    presetSearchQuery = value == null ? "" : value;
+                    presetListScroll = 0;
+                    visiblePresetCards.clear();
+                    visiblePresetCards.addAll(collectVisiblePresetCards());
+                });
+        presetSearchField.clip = presetBrowserCanvas;
+
+        int y = presetCategoryPanel.y + uiMetrics.inset;
+        int categoryHeight = uiMetrics.topButtonHeight;
+        for (String category : PRESET_CATEGORIES) {
+            EditorButton categoryButton = addButton("preset_category_" + category.toLowerCase(Locale.ROOT), presetCategoryPanel.x + uiMetrics.gap * 2, y,
+                    presetCategoryPanel.width - uiMetrics.gap * 4, categoryHeight, category, category.equals(presetCategory), false,
+                    () -> {
+                        presetCategory = category;
+                        presetListScroll = 0;
+                        rebuildUi();
+                    });
+            categoryButton.clip = presetCategoryPanel;
+            y += categoryHeight + uiMetrics.gap * 2;
+        }
+
+        int cardHeight = presetCardHeight();
+        maxPresetListScroll = Math.max(0, visiblePresetCards.size() * (cardHeight + uiMetrics.gap * 3) - presetListViewport.height + uiMetrics.inset);
+        presetListScroll = clamp(presetListScroll, 0, maxPresetListScroll);
+
+        maxInspectorScroll = Math.max(0, uiMetrics.unit * 24 - inspectorBodyRect.height);
+        inspectorScroll = clamp(inspectorScroll, 0, maxInspectorScroll);
+
+        int detailsInnerX = detailsPanel.x + uiMetrics.inset;
+        int detailsInnerWidth = detailsPanel.width - uiMetrics.inset * 2;
+        presetUseButton = addButton("preset_use", detailsInnerX, detailsPanel.bottom() - uiMetrics.inset - uiMetrics.topButtonHeight,
+                detailsInnerWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+        presetUseButton.clip = detailsPanel;
     }
 
     private void buildInspectorControls() {
@@ -734,6 +840,12 @@ public final class PcgEditorScreen extends Screen {
                     session.setShowModuleAir(!session.isShowModuleAir());
                     rebuildUi();
                 });
+        moduleRotateButton.clip = modulePreviewPanel;
+        moduleZoomOutButton.clip = modulePreviewPanel;
+        moduleZoomInButton.clip = modulePreviewPanel;
+        moduleBoundsButton.clip = modulePreviewPanel;
+        moduleConnectorsButton.clip = modulePreviewPanel;
+        moduleAirButton.clip = modulePreviewPanel;
     }
 
     private void drawTopBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -746,10 +858,8 @@ public final class PcgEditorScreen extends Screen {
         int chipY = topBar.y + (topBar.height - (uiMetrics.topButtonHeight + 4)) / 2;
         LayoutRect packRect = new LayoutRect(layout.packX() + uiMetrics.unit * 2, chipY, layout.clusterWidth() - uiMetrics.unit * 4, uiMetrics.topButtonHeight + 4);
         LayoutRect modeRect = new LayoutRect(layout.modeX(), chipY, layout.modeWidth(), uiMetrics.topButtonHeight + 4);
-        LayoutRect presetRect = new LayoutRect(layout.presetX() + uiMetrics.unit * 2, chipY, layout.clusterWidth() - uiMetrics.unit * 4, uiMetrics.topButtonHeight + 4);
-        drawToolbarChip(guiGraphics, modeRect, "MODE", "Build", TEXT_GREEN);
+        drawToolbarChip(guiGraphics, modeRect, "MODE", session.getActiveTool().getTitle(), TEXT_GREEN);
         drawToolbarChip(guiGraphics, packRect, "PACK", session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, TEXT_BRIGHT);
-        drawToolbarChip(guiGraphics, presetRect, "PRESET", session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, TEXT_BRIGHT);
     }
 
     private void drawLeftBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -771,13 +881,261 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.drawString(this.font, "Tool: " + session.getActiveTool().getTitle(), viewport.x + 30, viewport.bottom() - 22, TEXT_MUTED);
 
         PcgEditorPreviewState previewState = session.getPreviewState();
-        if (previewState == PcgEditorPreviewState.DIRTY || previewState == PcgEditorPreviewState.ERROR) {
-            int badgeColor = previewState == PcgEditorPreviewState.ERROR ? 0xB03B161B : 0xB03B3015;
-            int textColor = previewState == PcgEditorPreviewState.ERROR ? TEXT_RED : TEXT_YELLOW;
-            String label = previewState == PcgEditorPreviewState.ERROR ? "Preview Error" : "Outdated Preview";
+        if (previewState == PcgEditorPreviewState.DIRTY || previewState == PcgEditorPreviewState.ERROR || previewState == PcgEditorPreviewState.GENERATING) {
+            int badgeColor = previewState == PcgEditorPreviewState.ERROR ? 0xB03B161B : previewState == PcgEditorPreviewState.GENERATING ? 0xB015273B : 0xB03B3015;
+            int textColor = previewState == PcgEditorPreviewState.ERROR ? TEXT_RED : previewState == PcgEditorPreviewState.GENERATING ? TEXT_BLUE : TEXT_YELLOW;
+            String label = previewState == PcgEditorPreviewState.ERROR ? "Preview Error" : previewState == PcgEditorPreviewState.GENERATING ? "Generating Preview" : "Outdated Preview";
             guiGraphics.fill(viewport.right() - 164, viewport.y + 18, viewport.right() - 18, viewport.y + 44, badgeColor);
             guiGraphics.drawString(this.font, label, viewport.right() - 150, viewport.y + 27, textColor);
         }
+    }
+
+
+
+    private void drawPresetLibrary(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        if (presetBrowserCanvas == null) {
+            presetBrowserCanvas = computePresetBrowserCanvas();
+        }
+        refreshPresetBrowserCards();
+        drawPanel(guiGraphics, presetBrowserCanvas, true);
+        guiGraphics.drawString(this.font, "PRESET LIBRARY", presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + uiMetrics.inset + 3, TEXT_BRIGHT);
+        int descriptionWidth = presetSearchField == null
+                ? presetBrowserCanvas.width - uiMetrics.inset * 2
+                : Math.max(uiMetrics.unit * 12, presetSearchField.bounds.x - presetBrowserCanvas.x - uiMetrics.inset * 2);
+        guiGraphics.drawString(this.font, trimToWidth("Search, filter, and pick the generator before editing region or spline inputs.", descriptionWidth),
+                presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 6, TEXT_MUTED);
+        if (presetSearchField != null) {
+            guiGraphics.drawString(this.font, "Search", presetSearchField.bounds.x, presetSearchField.bounds.y - 11, TEXT_MUTED);
+        }
+
+        if (presetCategoryPanel == null || presetListViewport == null) {
+            return;
+        }
+        guiGraphics.fill(presetCategoryPanel.x, presetCategoryPanel.y, presetCategoryPanel.right(), presetCategoryPanel.bottom(), 0x7710161E);
+        guiGraphics.drawString(this.font, "CATEGORIES", presetCategoryPanel.x + uiMetrics.inset, presetCategoryPanel.y + uiMetrics.inset - 2, TEXT_MUTED);
+
+        guiGraphics.fill(presetListViewport.x, presetListViewport.y, presetListViewport.right(), presetListViewport.bottom(), 0x6610161E);
+        int listHeaderY = presetListViewport.y + uiMetrics.inset;
+        guiGraphics.drawString(this.font, visiblePresetCards.size() + " presets", presetListViewport.x + uiMetrics.inset, listHeaderY, TEXT_MUTED);
+        LoadedPack pack = session.getSelectedPack();
+        guiGraphics.drawString(this.font, pack == null ? "No pack loaded" : "Pack: " + pack.getMetadata().id,
+                presetListViewport.x + uiMetrics.inset + uiMetrics.unit * 9, listHeaderY, TEXT_MUTED);
+
+        enableUiScissor(guiGraphics, presetListViewport);
+        int cardHeight = presetCardHeight();
+        int y = presetListViewport.y + uiMetrics.inset + 18 - presetListScroll;
+        for (PresetCardView card : visiblePresetCards) {
+            LayoutRect cardRect = new LayoutRect(presetListViewport.x + uiMetrics.inset, y,
+                    presetListViewport.width - uiMetrics.inset * 2, cardHeight);
+            if (cardRect.bottom() >= presetListViewport.y && cardRect.y <= presetListViewport.bottom()) {
+                drawPresetCard(guiGraphics, cardRect, card, mouseX, mouseY);
+            }
+            y += cardHeight + uiMetrics.gap * 3;
+        }
+        guiGraphics.disableScissor();
+
+        if (visiblePresetCards.isEmpty()) {
+            guiGraphics.drawString(this.font, "No presets match this filter.", presetListViewport.x + uiMetrics.inset, presetListViewport.y + 44, TEXT_YELLOW);
+        }
+    }
+
+    private void drawPresetCard(GuiGraphics guiGraphics, LayoutRect rect, PresetCardView card, int mouseX, int mouseY) {
+        boolean selected = session.getSelectedPresetId() != null && session.getSelectedPresetId().equals(card.preset.id);
+        boolean hovered = rect.contains(mouseX, mouseY);
+        int bg = selected ? BUTTON_ACTIVE : hovered ? BUTTON_HOVER : BUTTON_BG;
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), bg);
+        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.y + 1, selected ? TEXT_BLUE : PANEL_BORDER);
+        guiGraphics.fill(rect.x, rect.bottom() - 1, rect.right(), rect.bottom(), PANEL_BORDER);
+        guiGraphics.fill(rect.x, rect.y, rect.x + 1, rect.bottom(), PANEL_BORDER);
+        guiGraphics.fill(rect.right() - 1, rect.y, rect.right(), rect.bottom(), PANEL_BORDER);
+
+        int iconColor = card.broken ? 0xAA5B2525 : card.graph ? 0xAA24486A : 0xAA343A43;
+        guiGraphics.fill(rect.x + 8, rect.y + 9, rect.x + 34, rect.y + 35, iconColor);
+        guiGraphics.drawString(this.font, card.graph ? "G" : "P", rect.x + 18, rect.y + 18, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, trimToWidth(card.displayName, rect.width - 54), rect.x + 42, rect.y + 8, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, trimToWidth(card.preset.id, rect.width - 54), rect.x + 42, rect.y + 22, TEXT_MUTED);
+
+        int tagY = rect.y + 40;
+        int tagX = rect.x + 42;
+        tagX = drawMiniTag(guiGraphics, tagX, tagY, card.category, TEXT_BLUE);
+        tagX = drawMiniTag(guiGraphics, tagX + 4, tagY, card.input, TEXT_GREEN);
+        if (card.graph) {
+            tagX = drawMiniTag(guiGraphics, tagX + 4, tagY, "GRAPH", TEXT_MAGENTA);
+        }
+        if (card.broken) {
+            drawMiniTag(guiGraphics, tagX + 4, tagY, "BROKEN", TEXT_RED);
+        }
+
+        String stats = card.executor + "  nodes " + card.nodeCount + "  modules " + card.moduleCount;
+        guiGraphics.drawString(this.font, trimToWidth(stats, rect.width - 56), rect.x + 42, rect.bottom() - 14, TEXT_MUTED);
+    }
+
+    private int drawMiniTag(GuiGraphics guiGraphics, int x, int y, String text, int color) {
+        String label = text == null || text.isBlank() ? "NONE" : text.toUpperCase(Locale.ROOT);
+        int width = this.font.width(label) + 10;
+        guiGraphics.fill(x, y, x + width, y + 13, 0x661D2630);
+        guiGraphics.drawString(this.font, label, x + 5, y + 3, color);
+        return x + width;
+    }
+
+    private void drawPresetDetailsInspector(GuiGraphics guiGraphics) {
+        int innerX = inspectorBodyRect.x;
+        int innerWidth = inspectorBodyRect.width;
+        int y = inspectorBodyRect.y + 12 - inspectorScroll;
+        enableUiScissor(guiGraphics, inspectorBodyRect);
+        PresetDefinition preset = session.getSelectedPreset();
+        LoadedPack pack = session.getSelectedPack();
+        PresetCardView card = preset == null ? null : createPresetCard(pack, preset);
+
+        y = drawSectionHeader(guiGraphics, y, "SELECTED PRESET");
+        if (preset == null || card == null) {
+            guiGraphics.drawString(this.font, "No preset selected.", innerX, y + 2, TEXT_YELLOW);
+            guiGraphics.disableScissor();
+            return;
+        }
+        guiGraphics.drawString(this.font, trimToWidth(card.displayName, innerWidth), innerX, y, TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 18, innerWidth, "Id", preset.id, TEXT_MUTED);
+        drawLabelValue(guiGraphics, innerX, y + 34, innerWidth, "Category", card.category, TEXT_BLUE);
+        drawLabelValue(guiGraphics, innerX, y + 50, innerWidth, "Input", card.input, isInputCompatible(card.input) ? TEXT_GREEN : TEXT_RED);
+        y += 76;
+
+        y = drawSectionHeader(guiGraphics, y, "EXECUTION");
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Executor", card.executor, card.graph ? TEXT_MAGENTA : TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Rule", safe(preset.rule), TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 32, innerWidth, "Nodes", String.valueOf(card.nodeCount), TEXT_BLUE);
+        drawLabelValue(guiGraphics, innerX, y + 48, innerWidth, "Edges", String.valueOf(card.edgeCount), TEXT_BLUE);
+        y += 74;
+
+        y = drawSectionHeader(guiGraphics, y, "WHAT TO DO NEXT");
+        List<String> steps = presetNextSteps(card);
+        for (String step : steps) {
+            guiGraphics.drawString(this.font, trimToWidth(step, innerWidth), innerX, y, TEXT_MUTED);
+            y += 13;
+        }
+        y += 10;
+
+        y = drawSectionHeader(guiGraphics, y, "VALIDATION");
+        List<String> issues = getPresetIssueSummary(pack, preset);
+        if (issues.isEmpty()) {
+            guiGraphics.drawString(this.font, "Ready. No preset-level issues found.", innerX, y + 2, TEXT_GREEN);
+            y += 18;
+        } else {
+            for (String issue : issues.subList(0, Math.min(5, issues.size()))) {
+                int color = issue.startsWith("ERROR") ? TEXT_RED : TEXT_YELLOW;
+                guiGraphics.drawString(this.font, trimToWidth(issue, innerWidth), innerX, y, color);
+                y += 13;
+            }
+        }
+        y += 10;
+
+        y = drawSectionHeader(guiGraphics, y, "HINT");
+        guiGraphics.drawString(this.font, trimToWidth("Node Graph now only inspects the selected graph preset. Use this library to browse and switch presets.", innerWidth), innerX, y + 2, TEXT_MUTED);
+        guiGraphics.disableScissor();
+    }
+
+    private void drawNodeGraphEditor(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        LayoutRect canvas = new LayoutRect(viewport.x + 18, viewport.y + 18, viewport.width - 36, viewport.height - 36);
+        guiGraphics.fill(canvas.x, canvas.y, canvas.right(), canvas.bottom(), 0xDA0B0F15);
+        guiGraphics.drawString(this.font, "PCG NODE GRAPH", canvas.x + 12, canvas.y + 10, TEXT_BRIGHT);
+        guiGraphics.drawString(this.font, "Drag nodes to organize. Graph execution still comes from JSON.", canvas.x + 12, canvas.y + 24, TEXT_MUTED);
+        graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
+        if (graphEditorState.getNodes().isEmpty()) {
+            guiGraphics.drawString(this.font, "No graph found on this preset.", canvas.x + 12, canvas.y + 50, TEXT_YELLOW);
+            guiGraphics.drawString(this.font, "Use a pcg_graph rule with config.graph or open one of the graph demo presets.", canvas.x + 12, canvas.y + 64, TEXT_MUTED);
+            return;
+        }
+        int originX = canvas.x;
+        int originY = canvas.y;
+        for (PcgGraphEditorState.EdgeView edge : graphEditorState.getEdges()) {
+            PcgGraphEditorState.NodeView from = graphEditorState.getNode(edge.from());
+            PcgGraphEditorState.NodeView to = graphEditorState.getNode(edge.to());
+            if (from == null || to == null) {
+                continue;
+            }
+            int x1 = originX + from.x + from.width;
+            int y1 = originY + from.y + from.height / 2;
+            int x2 = originX + to.x;
+            int y2 = originY + to.y + to.height / 2;
+            int midX = (x1 + x2) / 2;
+            drawGraphSegment(guiGraphics, x1, y1, midX, y1, PANEL_ACCENT_SOFT);
+            drawGraphSegment(guiGraphics, midX, y1, midX, y2, PANEL_ACCENT_SOFT);
+            drawGraphSegment(guiGraphics, midX, y2, x2, y2, PANEL_ACCENT_SOFT);
+        }
+        for (PcgGraphEditorState.NodeView node : graphEditorState.getNodes()) {
+            int x = originX + node.x;
+            int y = originY + node.y;
+            boolean selected = node.id.equals(graphEditorState.getSelectedNodeId());
+            boolean hovered = mouseX >= x && mouseX <= x + node.width && mouseY >= y && mouseY <= y + node.height;
+            int bg = selected ? BUTTON_ACTIVE : hovered ? BUTTON_HOVER : BUTTON_BG;
+            guiGraphics.fill(x, y, x + node.width, y + node.height, bg);
+            guiGraphics.fill(x, y, x + node.width, y + 1, selected ? TEXT_BLUE : PANEL_BORDER);
+            guiGraphics.fill(x, y + node.height - 1, x + node.width, y + node.height, PANEL_BORDER);
+            guiGraphics.fill(x, y, x + 1, y + node.height, PANEL_BORDER);
+            guiGraphics.fill(x + node.width - 1, y, x + node.width, y + node.height, PANEL_BORDER);
+            guiGraphics.drawString(this.font, trimToWidth(node.id, node.width - 14), x + 7, y + 8, TEXT_BRIGHT);
+            guiGraphics.drawString(this.font, trimToWidth(node.type, node.width - 14), x + 7, y + 25, TEXT_MUTED);
+        }
+    }
+
+    private void drawGraphSegment(GuiGraphics guiGraphics, int x1, int y1, int x2, int y2, int color) {
+        if (x1 == x2) {
+            guiGraphics.fill(x1 - 1, Math.min(y1, y2), x1 + 1, Math.max(y1, y2) + 1, color);
+        } else if (y1 == y2) {
+            guiGraphics.fill(Math.min(x1, x2), y1 - 1, Math.max(x1, x2) + 1, y1 + 1, color);
+        }
+    }
+
+    private void drawGraphInspector(GuiGraphics guiGraphics) {
+        int innerX = inspectorBodyRect.x;
+        int innerWidth = inspectorBodyRect.width;
+        int y = inspectorBodyRect.y + 12 - inspectorScroll;
+        enableUiScissor(guiGraphics, inspectorBodyRect);
+        y = drawSectionHeader(guiGraphics, y, "GRAPH");
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Preset", session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, TEXT_BRIGHT);
+        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Nodes", String.valueOf(graphEditorState.getNodes().size()), TEXT_BLUE);
+        drawLabelValue(guiGraphics, innerX, y + 32, innerWidth, "Edges", String.valueOf(graphEditorState.getEdges().size()), TEXT_BLUE);
+        y += 58;
+        y = drawSectionHeader(guiGraphics, y, "SELECTED NODE");
+        PcgGraphEditorState.NodeView node = graphEditorState.getNode(graphEditorState.getSelectedNodeId());
+        if (node == null) {
+            guiGraphics.drawString(this.font, "Click a node in the graph canvas.", innerX, y + 2, TEXT_MUTED);
+        } else {
+            drawLabelValue(guiGraphics, innerX, y, innerWidth, "Id", node.id, TEXT_BRIGHT);
+            drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Type", node.type, TEXT_BRIGHT);
+            drawLabelValue(guiGraphics, innerX, y + 32, innerWidth, "Canvas", node.x + ", " + node.y, TEXT_MUTED);
+        }
+        y += 58;
+        y = drawSectionHeader(guiGraphics, y, "DEBUG");
+        guiGraphics.drawString(this.font, trimToWidth("Set debug=true in graph/rule config or pass debug=true override to render node point and tangent overlays.", innerWidth), innerX, y + 2, TEXT_MUTED);
+        guiGraphics.disableScissor();
+    }
+
+    private boolean beginGraphNodeDrag(double uiMouseX, double uiMouseY) {
+        graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
+        int canvasX = viewport.x + 18;
+        int canvasY = viewport.y + 18;
+        PcgGraphEditorState.NodeView node = graphEditorState.hitNode(uiMouseX - canvasX, uiMouseY - canvasY);
+        if (node == null) {
+            graphEditorState.setSelectedNodeId("");
+            return true;
+        }
+        graphEditorState.setSelectedNodeId(node.id);
+        draggingGraphNodeId = node.id;
+        draggingGraphOffsetX = (int) Math.round(uiMouseX - canvasX - node.x);
+        draggingGraphOffsetY = (int) Math.round(uiMouseY - canvasY - node.y);
+        session.log(PcgEditorLogEntry.Severity.INFO, "Selected graph node " + node.id + ".");
+        return true;
+    }
+
+    private void updateGraphNodeDrag(double uiMouseX, double uiMouseY) {
+        PcgGraphEditorState.NodeView node = graphEditorState.getNode(draggingGraphNodeId);
+        if (node == null) {
+            return;
+        }
+        int canvasX = viewport.x + 18;
+        int canvasY = viewport.y + 18;
+        node.x = clamp((int) Math.round(uiMouseX - canvasX - draggingGraphOffsetX), 18, Math.max(18, viewport.width - node.width - 36));
+        node.y = clamp((int) Math.round(uiMouseY - canvasY - draggingGraphOffsetY), 36, Math.max(36, viewport.height - node.height - 36));
     }
 
     private void drawRightPanel(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -790,8 +1148,12 @@ public final class PcgEditorScreen extends Screen {
             drawLayoutHandle(guiGraphics, previewSplitter, true);
         }
         guiGraphics.drawString(this.font, "DETAILS", detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.inset, TEXT_BRIGHT);
-        if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY) {
+            drawPresetDetailsInspector(guiGraphics);
+        } else if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             drawModuleLibrary(guiGraphics);
+        } else if (session.getActiveTool() == PcgEditorTool.NODE_GRAPH) {
+            drawGraphInspector(guiGraphics);
         } else {
             drawInspector(guiGraphics);
         }
@@ -1348,6 +1710,8 @@ public final class PcgEditorScreen extends Screen {
                 + "|" + session.getModuleCategoryQuery()
                 + "|" + session.getModuleSearchQuery()
                 + "|" + session.getModuleTagQuery()
+                + "|" + presetCategory
+                + "|" + normalize(presetSearchQuery)
                 + "|" + this.width + "x" + this.height;
     }
 
@@ -1401,7 +1765,7 @@ public final class PcgEditorScreen extends Screen {
                 focusSelection();
                 return true;
             }
-            case MODULE_LIBRARY, PAINT_MASK -> {
+            case PRESET_LIBRARY, MODULE_LIBRARY, NODE_GRAPH, PAINT_MASK -> {
                 return false;
             }
         }
@@ -2009,6 +2373,291 @@ public final class PcgEditorScreen extends Screen {
         if (transformApplyButton != null) {
             transformApplyButton.enabled = isTransformSelection();
         }
+        if (presetUseButton != null) {
+            presetUseButton.enabled = session.getSelectedPreset() != null;
+        }
+    }
+
+    private LayoutRect computePresetBrowserCanvas() {
+        int right = detailsPanel == null ? viewport.right() : detailsPanel.x - uiMetrics.gap;
+        int width = Math.max(1, right - viewport.x - 36);
+        return new LayoutRect(viewport.x + 18, viewport.y + 18, width, viewport.height - 36);
+    }
+
+    private int presetCardHeight() {
+        return uiMetrics.unit * 5 + 6;
+    }
+
+    private String topPresetButtonLabel(int width) {
+        PresetDefinition preset = session.getSelectedPreset();
+        String value = preset == null ? "<none>" : preset.id;
+        String prefix = "Preset: ";
+        String suffix = " ▼";
+        int available = Math.max(32, width - this.font.width(prefix + suffix) - 18);
+        return prefix + this.font.plainSubstrByWidth(value, available) + suffix;
+    }
+
+    private boolean selectPresetCardAt(double uiMouseY) {
+        if (presetListViewport == null) {
+            return false;
+        }
+        int cardHeight = presetCardHeight();
+        int relativeY = (int) Math.round(uiMouseY - presetListViewport.y - uiMetrics.inset - 18 + presetListScroll);
+        if (relativeY < 0) {
+            return true;
+        }
+        int stride = cardHeight + uiMetrics.gap * 3;
+        int index = relativeY / stride;
+        int inside = relativeY % stride;
+        if (index < 0 || index >= visiblePresetCards.size() || inside > cardHeight) {
+            return true;
+        }
+        selectPresetFromBrowser(visiblePresetCards.get(index).preset);
+        return true;
+    }
+
+    private void selectPresetFromBrowser(PresetDefinition preset) {
+        if (preset == null) {
+            return;
+        }
+        if (!preset.id.equals(session.getSelectedPresetId())) {
+            session.setSelectedPresetId(preset.id);
+            parameterOverrides.clear();
+            graphEditorState.sync(session.getSelectedPack(), preset);
+            session.markDirty("Preset selected: " + preset.id + ".");
+        } else {
+            session.log(PcgEditorLogEntry.Severity.INFO, "Preset selected: " + preset.id + ".");
+        }
+        rebuildUi();
+    }
+
+    private void useSelectedPresetFromBrowser() {
+        PresetDefinition preset = session.getSelectedPreset();
+        if (preset == null) {
+            session.log(PcgEditorLogEntry.Severity.WARNING, "No preset selected.");
+            return;
+        }
+        String requiredInput = describePresetMode(preset);
+        if ("Region".equals(requiredInput)) {
+            session.setActiveTool(PcgEditorTool.BOX_REGION);
+            session.selectRegionIfPresent();
+        } else if ("Spline".equals(requiredInput)) {
+            session.setActiveTool(PcgEditorTool.SPLINE);
+            session.selectSplineIfPresent();
+        } else if (isGraphPreset(session.getSelectedPack(), preset)) {
+            session.setActiveTool(PcgEditorTool.NODE_GRAPH);
+            graphEditorState.sync(session.getSelectedPack(), preset);
+            session.setSelection(PcgEditorSelection.NONE);
+        } else {
+            session.setActiveTool(PcgEditorTool.BOX_REGION);
+        }
+        session.log(PcgEditorLogEntry.Severity.INFO, "Using preset " + preset.id + ".");
+        rebuildUi();
+    }
+
+    private void refreshPresetBrowserCards() {
+        visiblePresetCards.clear();
+        visiblePresetCards.addAll(collectVisiblePresetCards());
+        if (presetListViewport != null) {
+            int cardHeight = presetCardHeight();
+            maxPresetListScroll = Math.max(0, visiblePresetCards.size() * (cardHeight + uiMetrics.gap * 3) - presetListViewport.height + uiMetrics.inset);
+            presetListScroll = clamp(presetListScroll, 0, maxPresetListScroll);
+        }
+    }
+
+    private List<PresetCardView> collectVisiblePresetCards() {
+        List<PresetCardView> cards = new ArrayList<>();
+        LoadedPack pack = session.getSelectedPack();
+        if (pack == null) {
+            return cards;
+        }
+        for (PresetDefinition preset : pack.getPresets().values()) {
+            PresetCardView card = createPresetCard(pack, preset);
+            if (matchesPresetBrowserFilter(card)) {
+                cards.add(card);
+            }
+        }
+        return cards;
+    }
+
+    private PresetCardView createPresetCard(LoadedPack pack, PresetDefinition preset) {
+        RuleDefinition rule = ruleForPreset(pack, preset);
+        String executor = rule == null || rule.executor == null || rule.executor.isBlank() ? "<missing>" : rule.executor;
+        String displayName = preset.name == null || preset.name.isBlank() ? humanizePresetId(preset.id) : preset.name;
+        String input = describePresetMode(preset);
+        boolean graph = "pcg_graph".equals(executor);
+        boolean broken = isPresetBroken(pack, preset, rule);
+        String category = inferPresetCategory(preset, executor, graph, broken);
+        int nodes = graphArrayCount(rule, "nodes");
+        int edges = graphArrayCount(rule, "edges");
+        int modules = estimateModuleReferenceCount(rule);
+        return new PresetCardView(preset, displayName, category, executor, input, graph, broken, nodes, edges, modules);
+    }
+
+    private boolean matchesPresetBrowserFilter(PresetCardView card) {
+        if (card == null) {
+            return false;
+        }
+        boolean categoryMatches = switch (presetCategory) {
+            case "Buildings" -> "Buildings".equals(card.category);
+            case "Roads" -> "Roads".equals(card.category);
+            case "Scatter" -> "Scatter".equals(card.category);
+            case "Connectors" -> "Connectors".equals(card.category);
+            case "Graph" -> card.graph;
+            case "Legacy" -> !card.graph;
+            case "Broken" -> card.broken;
+            default -> true;
+        };
+        if (!categoryMatches) {
+            return false;
+        }
+        String query = normalize(presetSearchQuery);
+        if (query.isBlank()) {
+            return true;
+        }
+        String haystack = normalize(card.preset.id + " " + safe(card.preset.name) + " " + safe(card.preset.type)
+                + " " + card.category + " " + card.executor + " " + card.input);
+        return haystack.contains(query);
+    }
+
+    private RuleDefinition ruleForPreset(LoadedPack pack, PresetDefinition preset) {
+        if (pack == null || preset == null || preset.rule == null || preset.rule.isBlank()) {
+            return null;
+        }
+        return pack.getRules().get(preset.rule);
+    }
+
+    private boolean isGraphPreset(LoadedPack pack, PresetDefinition preset) {
+        RuleDefinition rule = ruleForPreset(pack, preset);
+        return rule != null && "pcg_graph".equals(rule.executor);
+    }
+
+    private boolean isPresetBroken(LoadedPack pack, PresetDefinition preset, RuleDefinition rule) {
+        if (pack == null || preset == null || rule == null) {
+            return true;
+        }
+        String presetId = normalize(preset.id);
+        String ruleId = normalize(preset.rule);
+        for (ValidationIssue issue : pack.getValidationReport().getIssues()) {
+            String location = normalize(issue.getLocation());
+            String message = normalize(issue.getMessage());
+            if (issue.getSeverity() == ValidationIssue.Severity.ERROR
+                    && (location.contains(presetId) || message.contains(presetId)
+                    || (!ruleId.isBlank() && (location.contains(ruleId) || message.contains(ruleId))))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<String> getPresetIssueSummary(LoadedPack pack, PresetDefinition preset) {
+        List<String> issues = new ArrayList<>();
+        if (pack == null || preset == null) {
+            issues.add("ERROR: No pack or preset selected.");
+            return issues;
+        }
+        if (preset.rule == null || preset.rule.isBlank()) {
+            issues.add("ERROR: Preset has no rule.");
+        } else if (!pack.getRules().containsKey(preset.rule)) {
+            issues.add("ERROR: Missing rule " + preset.rule + ".");
+        }
+        if (!isInputCompatible(describePresetMode(preset))) {
+            issues.add("WARNING: Current selection does not satisfy required input " + describePresetMode(preset) + ".");
+        }
+        for (ValidationIssue issue : pack.getValidationReport().getIssues()) {
+            String location = normalize(issue.getLocation());
+            String message = normalize(issue.getMessage());
+            String presetId = normalize(preset.id);
+            String ruleId = normalize(preset.rule);
+            if (location.contains(presetId) || message.contains(presetId) || (!ruleId.isBlank() && (location.contains(ruleId) || message.contains(ruleId)))) {
+                issues.add(issue.getSeverity() + ": " + issue.getMessage());
+            }
+        }
+        return issues;
+    }
+
+    private String inferPresetCategory(PresetDefinition preset, String executor, boolean graph, boolean broken) {
+        String text = normalize(preset.id + " " + safe(preset.name) + " " + safe(preset.type) + " " + executor);
+        if (text.contains("connector") || text.contains("room") || text.contains("chain")) {
+            return "Connectors";
+        }
+        if (text.contains("road") || text.contains("spline") || text.contains("street")) {
+            return "Roads";
+        }
+        if (text.contains("scatter") || text.contains("lamp") || text.contains("foliage")) {
+            return "Scatter";
+        }
+        if (text.contains("building") || text.contains("facade") || text.contains("house") || text.contains("box")) {
+            return "Buildings";
+        }
+        return graph ? "Graph" : broken ? "Broken" : "Legacy";
+    }
+
+    private int graphArrayCount(RuleDefinition rule, String key) {
+        if (rule == null || rule.config == null) {
+            return 0;
+        }
+        if (rule.config.has("graph") && rule.config.get("graph").isJsonObject()) {
+            var graph = rule.config.getAsJsonObject("graph");
+            if (graph.has(key) && graph.get(key).isJsonArray()) {
+                return graph.getAsJsonArray(key).size();
+            }
+        }
+        if (rule.config.has(key) && rule.config.get(key).isJsonArray()) {
+            return rule.config.getAsJsonArray(key).size();
+        }
+        return 0;
+    }
+
+    private int estimateModuleReferenceCount(RuleDefinition rule) {
+        if (rule == null || rule.config == null) {
+            return 0;
+        }
+        String raw = rule.config.toString();
+        int count = 0;
+        int index = raw.indexOf("module");
+        while (index >= 0) {
+            count++;
+            index = raw.indexOf("module", index + 6);
+        }
+        return count;
+    }
+
+    private List<String> presetNextSteps(PresetCardView card) {
+        if (card == null) {
+            return List.of("Pick a preset from the library.");
+        }
+        if ("Region".equals(card.input)) {
+            return List.of("1. Click Use Preset.", "2. Mark a Box Region in the world.", "3. Press Preview, then Bake.");
+        }
+        if ("Spline".equals(card.input)) {
+            return List.of("1. Click Use Preset.", "2. Add spline points in the world.", "3. Press Preview, then Bake.");
+        }
+        if (card.graph) {
+            return List.of("1. Click Use Preset to inspect the graph.", "2. Enable debug=true for point/line overlays.", "3. Press Preview when inputs are ready.");
+        }
+        return List.of("1. Click Use Preset.", "2. Adjust parameters if exposed.", "3. Press Preview, then Bake.");
+    }
+
+    private String humanizePresetId(String id) {
+        if (id == null || id.isBlank()) {
+            return "Unnamed Preset";
+        }
+        String[] parts = id.replace('.', '_').replace('-', '_').split("_");
+        StringBuilder builder = new StringBuilder(id.length());
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(part.charAt(0)));
+            if (part.length() > 1) {
+                builder.append(part.substring(1));
+            }
+        }
+        return builder.length() == 0 ? id : builder.toString();
     }
 
     private void switchTool(PcgEditorTool tool) {
@@ -2017,8 +2666,13 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         session.setActiveTool(tool);
-        if (tool == PcgEditorTool.MODULE_LIBRARY) {
+        if (tool == PcgEditorTool.PRESET_LIBRARY) {
+            session.setSelection(PcgEditorSelection.NONE);
+        } else if (tool == PcgEditorTool.MODULE_LIBRARY) {
             session.setSelection(PcgEditorSelection.MODULE);
+        } else if (tool == PcgEditorTool.NODE_GRAPH) {
+            graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
+            session.setSelection(PcgEditorSelection.NONE);
         } else if (tool == PcgEditorTool.BOX_REGION) {
             session.selectRegionIfPresent();
         } else if (tool == PcgEditorTool.SPLINE) {
@@ -2085,27 +2739,19 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         session.log(PcgEditorLogEntry.Severity.INFO, regenerate ? "Regenerating preview..." : "Generating preview...");
-        Map<String, String> overrideMap = new LinkedHashMap<>();
         List<String> overrideParts = new ArrayList<>();
         for (ParameterField field : parameterFields) {
             String value = field.field.value;
-            overrideMap.put(field.key, value);
             overrideParts.add(field.key + "=" + value);
         }
-        PreviewPlan plan = ClientPreviewGenerator.generate(preset.id, overrideMap);
-        if (plan == null) {
-            session.log(PcgEditorLogEntry.Severity.ERROR, "Preview generation failed.");
-            return;
-        }
-        ClientPreviewState.setPreviewPlan(plan);
         String command = "blockwright preview generate " + preset.id;
         if (!overrideParts.isEmpty()) {
             command += " " + String.join(",", overrideParts);
         }
+        ClientPreviewState.beginServerPreviewRequest();
         sendCommand(command);
         session.setSelection(PcgEditorSelection.PREVIEW);
-        session.log(plan.canBake() ? PcgEditorLogEntry.Severity.SUCCESS : PcgEditorLogEntry.Severity.WARNING,
-                "Preview generated: " + plan.getPlannedBlocks().size() + " blocks, state=" + session.getPreviewState().name() + ".");
+        session.log(PcgEditorLogEntry.Severity.INFO, "Preview request sent to server; waiting for authoritative plan.");
         updateActionStates();
     }
 
@@ -2569,6 +3215,7 @@ public final class PcgEditorScreen extends Screen {
 
     private String toolLabel(PcgEditorTool tool) {
         return switch (tool) {
+            case PRESET_LIBRARY -> "PRESET\nLIBRARY";
             case BOX_REGION -> "BOX\nREGION";
             case MODULE_LIBRARY -> "MODULE\nLIBRARY";
             case PAINT_MASK -> "PAINT /\nMASK";
@@ -2708,6 +3355,7 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void applyClipVisibility(EditorField field, LayoutRect clip) {
+        field.clip = clip;
         field.visible = rectIntersects(field.bounds, clip);
         if (!field.visible && field.focused) {
             clearFocus();
@@ -2715,6 +3363,7 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private void applyClipVisibility(EditorButton button, LayoutRect clip) {
+        button.clip = clip;
         button.visible = rectIntersects(button.bounds, clip);
     }
 
@@ -2815,6 +3464,7 @@ public final class PcgEditorScreen extends Screen {
         private final LayoutRect bounds;
         private final Runnable onPress;
         private String label;
+        private LayoutRect clip;
         private boolean selected;
         private boolean danger;
         private boolean enabled = true;
@@ -2830,7 +3480,7 @@ public final class PcgEditorScreen extends Screen {
         }
 
         private boolean contains(double mouseX, double mouseY) {
-            return bounds.contains(mouseX, mouseY);
+            return bounds.contains(mouseX, mouseY) && (clip == null || clip.contains(mouseX, mouseY));
         }
 
         private void press() {
@@ -2841,6 +3491,9 @@ public final class PcgEditorScreen extends Screen {
         }
 
         private void draw(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+            if (clip != null) {
+                enableUiScissor(guiGraphics, clip);
+            }
             int fill = !enabled ? 0x9930363F : selected ? BUTTON_ACTIVE : danger ? BUTTON_DANGER : BUTTON_BG;
             if (enabled && contains(mouseX, mouseY) && !selected) {
                 fill = danger ? 0xFF814444 : BUTTON_HOVER;
@@ -2856,9 +3509,13 @@ public final class PcgEditorScreen extends Screen {
             int totalHeight = lines.length * lineHeight - 1;
             int textY = bounds.y + Math.max(6, (bounds.height - totalHeight) / 2);
             for (String line : lines) {
-                int textWidth = font.width(line);
-                guiGraphics.drawString(font, line, bounds.x + Math.max(6, (bounds.width - textWidth) / 2), textY, textColor);
+                String visibleLine = font.plainSubstrByWidth(line, Math.max(1, bounds.width - 12));
+                int textWidth = font.width(visibleLine);
+                guiGraphics.drawString(font, visibleLine, bounds.x + Math.max(6, (bounds.width - textWidth) / 2), textY, textColor);
                 textY += lineHeight;
+            }
+            if (clip != null) {
+                guiGraphics.disableScissor();
             }
         }
     }
@@ -2868,6 +3525,7 @@ public final class PcgEditorScreen extends Screen {
         private final Consumer<String> onChange;
         private final boolean integerOnly;
         private LayoutRect bounds;
+        private LayoutRect clip;
         private String value;
         private boolean focused;
         private boolean visible = true;
@@ -2883,10 +3541,13 @@ public final class PcgEditorScreen extends Screen {
         }
 
         private boolean contains(double mouseX, double mouseY) {
-            return bounds.contains(mouseX, mouseY);
+            return bounds.contains(mouseX, mouseY) && (clip == null || clip.contains(mouseX, mouseY));
         }
 
         private void draw(GuiGraphics guiGraphics) {
+            if (clip != null) {
+                enableUiScissor(guiGraphics, clip);
+            }
             guiGraphics.fill(bounds.x, bounds.y, bounds.right(), bounds.bottom(), FIELD_BG);
             int border = focused ? TEXT_BLUE : FIELD_BORDER;
             guiGraphics.fill(bounds.x, bounds.y, bounds.right(), bounds.y + 1, border);
@@ -2899,6 +3560,9 @@ public final class PcgEditorScreen extends Screen {
                 int caretWidth = font.width(font.plainSubstrByWidth(value.substring(0, Math.min(caret, value.length())), bounds.width - 12));
                 int caretX = Math.min(bounds.right() - 6, bounds.x + 6 + caretWidth);
                 guiGraphics.fill(caretX, bounds.y + 4, caretX + 1, bounds.bottom() - 4, TEXT_BRIGHT);
+            }
+            if (clip != null) {
+                guiGraphics.disableScissor();
             }
         }
 
@@ -2971,6 +3635,10 @@ public final class PcgEditorScreen extends Screen {
             caret += accepted.length();
             onChange.accept(this.value);
         }
+    }
+
+    private record PresetCardView(PresetDefinition preset, String displayName, String category, String executor, String input,
+                                  boolean graph, boolean broken, int nodeCount, int edgeCount, int moduleCount) {
     }
 
     private record ParameterField(String key, int rowIndex, EditorField field) {
