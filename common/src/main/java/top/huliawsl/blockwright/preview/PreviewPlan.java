@@ -12,6 +12,8 @@ public final class PreviewPlan {
     private final String presetId;
     private final List<PlannedBlock> plannedBlocks = new ArrayList<>();
     private final List<PreviewIssue> issues = new ArrayList<>();
+    private final List<PreviewDebugPoint> debugPoints = new ArrayList<>();
+    private final List<PreviewDebugLine> debugLines = new ArrayList<>();
     private boolean stale;
 
     public PreviewPlan(String presetId) {
@@ -40,6 +42,22 @@ public final class PreviewPlan {
 
     public List<PreviewIssue> getIssues() {
         return Collections.unmodifiableList(issues);
+    }
+
+    public void addDebugPoint(net.minecraft.world.phys.Vec3 position, String label, int color) {
+        debugPoints.add(new PreviewDebugPoint(position, label, color));
+    }
+
+    public void addDebugLine(net.minecraft.world.phys.Vec3 from, net.minecraft.world.phys.Vec3 to, String label, int color) {
+        debugLines.add(new PreviewDebugLine(from, to, label, color));
+    }
+
+    public List<PreviewDebugPoint> getDebugPoints() {
+        return Collections.unmodifiableList(debugPoints);
+    }
+
+    public List<PreviewDebugLine> getDebugLines() {
+        return Collections.unmodifiableList(debugLines);
     }
 
     public boolean canBake() {
