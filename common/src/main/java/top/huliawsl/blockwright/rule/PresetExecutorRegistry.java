@@ -1,7 +1,6 @@
 package top.huliawsl.blockwright.rule;
 
-import top.huliawsl.blockwright.rule.executor.BoxBuildingSkeletonExecutor;
-import top.huliawsl.blockwright.rule.executor.SplineRoadSkeletonExecutor;
+import top.huliawsl.blockwright.pcg.PcgGraphExecutor;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -11,8 +10,10 @@ public final class PresetExecutorRegistry {
     private static final Map<String, PresetExecutor> EXECUTORS = new HashMap<>();
 
     static {
-        register("box_building_skeleton", new BoxBuildingSkeletonExecutor());
-        register("spline_road_skeleton", new SplineRoadSkeletonExecutor());
+        PcgGraphExecutor graphExecutor = new PcgGraphExecutor();
+        register("box_building_skeleton", graphExecutor);
+        register("spline_road_skeleton", graphExecutor);
+        register("pcg_graph", graphExecutor);
     }
 
     private PresetExecutorRegistry() {
