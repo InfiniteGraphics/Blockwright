@@ -8,6 +8,7 @@ import dev.architectury.registry.client.keymappings.KeyMappingRegistry;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import top.huliawsl.blockwright.network.BlockwrightNetwork;
 import org.lwjgl.glfw.GLFW;
 
 public final class BlockwrightClient {
@@ -31,6 +32,7 @@ public final class BlockwrightClient {
         initialized = true;
 
         KeyMappingRegistry.register(OPEN_SCREEN);
+        BlockwrightNetwork.initClient();
         ClientPlayerEvent.CLIENT_PLAYER_QUIT.register(player -> closeEditor(client(), false));
         ClientTickEvent.CLIENT_POST.register(client -> {
             if (editorToggleCooldownTicks > 0) {

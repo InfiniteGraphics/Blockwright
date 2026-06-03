@@ -13,6 +13,7 @@ import net.minecraft.server.level.ServerPlayer;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.config.BlockwrightConfig;
 import top.huliawsl.blockwright.pack.BlockwrightPackManager;
+import top.huliawsl.blockwright.network.BlockwrightNetwork;
 import top.huliawsl.blockwright.pack.ExportPackBootstrap;
 import top.huliawsl.blockwright.pack.LoadedPack;
 import top.huliawsl.blockwright.pack.SpongeSchematicData;
@@ -303,6 +304,7 @@ public final class BlockwrightCommands {
             plan.addIssue(PreviewSeverity.ERROR, "Preview exceeds maxPreviewBlocks=" + maxPreviewBlocks + ".");
         }
         session.setPreviewPlan(plan);
+        BlockwrightNetwork.sendPreview(player, plan);
         send(source, "Preview generated for " + presetId + ": " + plan.getPlannedBlocks().size() + " block(s), severity=" + plan.getOverallSeverity());
         for (PreviewIssue issue : plan.getIssues()) {
             send(source, issue.getSeverity() + ": " + issue.getMessage());
@@ -316,6 +318,7 @@ public final class BlockwrightCommands {
             return 0;
         }
         Blockwright.getSessionManager().getOrCreate(player).setPreviewPlan(null);
+        BlockwrightNetwork.sendPreviewClear(player);
         send(source, "Preview cleared.");
         return 1;
     }
@@ -344,6 +347,7 @@ public final class BlockwrightCommands {
             List<top.huliawsl.blockwright.world.UndoEntry> undoEntries = StructurePlacer.bake(player.serverLevel(), plan);
             session.pushUndo(undoEntries, BlockwrightConfig.get().maxUndoHistory);
             session.setPreviewPlan(null);
+            BlockwrightNetwork.sendPreviewClear(player);
             send(source, "Bake complete: " + undoEntries.size() + " block(s) captured for undo.");
             return undoEntries.size();
         } catch (Exception exception) {
