@@ -50,3 +50,7 @@ dev.jar
 local/
 
 docs/PCG_GRAPH.md
+
+# Frontend dependency installs
+node_modules/
+web/node_modules/

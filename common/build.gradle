@@ -10,3 +10,19 @@ dependencies {
 
     modImplementation "dev.architectury:architectury:$rootProject.architectury_api_version"
 }
+
+// Optional React Flow web editor build. The production bundle is checked into
+// common resources so regular mod builds do not require Node.js. Run this task
+// after editing files under /web to refresh assets/blockwright/web.
+def npmCommand = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows') ? 'npm.cmd' : 'npm'
+tasks.register('buildWebEditor', Exec) {
+    group = 'blockwright'
+    description = 'Builds the React Flow PCG web editor into common resources.'
+    workingDir rootProject.file('web')
+    commandLine npmCommand, 'run', 'build'
+    inputs.file rootProject.file('web/package.json')
+    inputs.file rootProject.file('web/package-lock.json')
+    inputs.file rootProject.file('web/vite.config.ts')
+    inputs.dir rootProject.file('web/src')
+    outputs.dir project.file('src/main/resources/assets/blockwright/web')
+}
