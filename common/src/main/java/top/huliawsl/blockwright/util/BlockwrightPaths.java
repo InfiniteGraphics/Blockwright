@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class BlockwrightPaths {
-    public static final String PRESET_FOLDER_NAME = "blockwright_presets";
+    public static final String PRESET_FOLDER_NAME = "blockwright_packs";
 
     private BlockwrightPaths() {
     }
