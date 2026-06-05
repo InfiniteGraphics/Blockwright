@@ -20,15 +20,20 @@ public final class AttributeSetNode implements PcgNode {
         JsonObject attributes = node.getConfig().has("attributes") && node.getConfig().get("attributes").isJsonObject()
                 ? node.getConfig().getAsJsonObject("attributes")
                 : new JsonObject();
-        double density = context.getNodeDouble(node, "density", Double.NaN);
+        String attributeKey = context.getNodeString(node, "attribute", "");
+        JsonElement configuredValue = attributeKey.isBlank() ? null : PcgNodeUtil.configuredAttributeValue(context, node);
+        double density = context.getNodeDouble(node, "density", -1.0D);
         List<PcgPoint> points = new ArrayList<>();
         for (PcgPoint point : input.getPoints()) {
             Map<String, JsonElement> next = new LinkedHashMap<>(point.getAttributes());
             for (Map.Entry<String, JsonElement> entry : attributes.entrySet()) {
                 next.put(entry.getKey(), entry.getValue());
             }
+            if (configuredValue != null) {
+                next.put(attributeKey, configuredValue);
+            }
             PcgPoint updated = point.withAttributes(next);
-            if (!Double.isNaN(density)) {
+            if (density >= 0.0D) {
                 updated = updated.withDensity(density);
             }
             points.add(updated);
