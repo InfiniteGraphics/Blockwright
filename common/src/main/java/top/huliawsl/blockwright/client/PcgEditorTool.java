@@ -7,7 +7,6 @@ public enum PcgEditorTool {
     SPLINE("Spline"),
     TRANSFORM("Transform"),
     MODULE_LIBRARY("Module Library"),
-    NODE_GRAPH("Node Graph"),
     PAINT_MASK("Paint / Mask");
 
     private final String title;

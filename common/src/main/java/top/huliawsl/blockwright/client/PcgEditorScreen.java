@@ -14,6 +14,7 @@ import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 import top.huliawsl.blockwright.Blockwright;
 import top.huliawsl.blockwright.config.BlockwrightConfig;
+import top.huliawsl.blockwright.client.web.BlockwrightWebBridge;
 import top.huliawsl.blockwright.module.model.ModuleDefinition;
 import top.huliawsl.blockwright.pack.LoadedPack;
 import top.huliawsl.blockwright.pack.SpongeSchematicData;
@@ -71,7 +72,6 @@ public final class PcgEditorScreen extends Screen {
     private final List<ParameterField> parameterFields = new ArrayList<>();
     private final Map<String, String> parameterOverrides = new LinkedHashMap<>();
     private final List<ModuleDefinition> visibleModules = new ArrayList<>();
-    private final PcgGraphEditorState graphEditorState = new PcgGraphEditorState();
     private final List<PresetCardView> visiblePresetCards = new ArrayList<>();
 
     private LayoutRect topBar;
@@ -114,6 +114,7 @@ public final class PcgEditorScreen extends Screen {
     private EditorButton clearPreviewButton;
     private EditorButton transformApplyButton;
     private EditorButton presetUseButton;
+    private EditorButton presetEditGraphButton;
 
     private EditorField focusedField;
     private EditorField transformXField;
@@ -128,6 +129,8 @@ public final class PcgEditorScreen extends Screen {
     private int maxInspectorScroll;
     private int moduleListScroll;
     private int maxModuleListScroll;
+    private int presetCategoryScroll;
+    private int maxPresetCategoryScroll;
     private int presetListScroll;
     private int maxPresetListScroll;
     private String presetSearchQuery = "";
@@ -167,9 +170,6 @@ public final class PcgEditorScreen extends Screen {
 
     private boolean showBakeConfirm;
     private String uiSignature = "";
-    private String draggingGraphNodeId = "";
-    private int draggingGraphOffsetX;
-    private int draggingGraphOffsetY;
 
     public PcgEditorScreen() {
         super(Component.literal("PCG Editor"));
@@ -204,7 +204,6 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
         if (session.isNavigating()) {
             tickNavigationMovement();
         }
@@ -219,11 +218,6 @@ public final class PcgEditorScreen extends Screen {
         drawTopBar(guiGraphics, uiMouseX, uiMouseY);
         drawLeftBar(guiGraphics, uiMouseX, uiMouseY);
         drawViewport(guiGraphics);
-        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY) {
-            drawPresetLibrary(guiGraphics, uiMouseX, uiMouseY);
-        } else if (session.getActiveTool() == PcgEditorTool.NODE_GRAPH) {
-            drawNodeGraphEditor(guiGraphics, uiMouseX, uiMouseY);
-        }
         drawRightPanel(guiGraphics, uiMouseX, uiMouseY);
         drawBottomBar(guiGraphics);
         drawInteractiveElements(guiGraphics, uiMouseX, uiMouseY);
@@ -260,9 +254,6 @@ public final class PcgEditorScreen extends Screen {
         if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetListViewport != null && presetListViewport.contains(uiMouseX, uiMouseY)) {
             return selectPresetCardAt(uiMouseY);
         }
-        if (session.getActiveTool() == PcgEditorTool.NODE_GRAPH && viewport.contains(uiMouseX, uiMouseY)) {
-            return beginGraphNodeDrag(uiMouseX, uiMouseY);
-        }
         clearFocus();
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(uiMouseX, uiMouseY)) {
             return selectModuleFromList(uiMouseY);
@@ -278,10 +269,6 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0 && !draggingGraphNodeId.isBlank()) {
-            draggingGraphNodeId = "";
-            return true;
-        }
         if (button == 0 && activeGizmoAxis != PcgEditorAxis.NONE) {
             finishGizmoDrag();
             return true;
@@ -300,10 +287,6 @@ public final class PcgEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        if (button == 0 && !draggingGraphNodeId.isBlank()) {
-            updateGraphNodeDrag(toUiX(mouseX), toUiY(mouseY));
-            return true;
-        }
         if (button == 0 && activeGizmoAxis != PcgEditorAxis.NONE) {
             updateGizmoDrag(mouseX, mouseY);
             return true;
@@ -336,8 +319,15 @@ public final class PcgEditorScreen extends Screen {
         if (showBakeConfirm) {
             return true;
         }
-        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetListViewport != null && presetListViewport.contains(uiMouseX, uiMouseY)) {
-            presetListScroll = clamp(presetListScroll - (int) Math.signum(delta), 0, maxPresetListScroll);
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetCategoryPanel != null && presetCategoryPanel.contains(uiMouseX, uiMouseY)) {
+            int scrollAmount = Math.max(uiMetrics.rowHeight, uiMetrics.topButtonHeight + uiMetrics.gap);
+            presetCategoryScroll = clamp(presetCategoryScroll - (int) Math.signum(delta) * scrollAmount, 0, maxPresetCategoryScroll);
+            rebuildUi();
+            return true;
+        }
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetBrowserCanvas != null && presetBrowserCanvas.contains(uiMouseX, uiMouseY)) {
+            int scrollAmount = Math.max(uiMetrics.rowHeight * 2, (int) Math.round(presetCardHeight() * Math.max(1.0D, Math.abs(delta))));
+            presetListScroll = clamp(presetListScroll - (int) Math.signum(delta) * scrollAmount, 0, maxPresetListScroll);
             return true;
         }
         if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY && moduleListViewport != null && moduleListViewport.contains(uiMouseX, uiMouseY)) {
@@ -509,6 +499,7 @@ public final class PcgEditorScreen extends Screen {
         clearPreviewButton = null;
         transformApplyButton = null;
         presetUseButton = null;
+        presetEditGraphButton = null;
         transformXField = null;
         transformYField = null;
         transformZField = null;
@@ -526,10 +517,9 @@ public final class PcgEditorScreen extends Screen {
             buildPresetLibraryControls();
         } else if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             buildModuleLibraryControls();
-        } else if (session.getActiveTool() != PcgEditorTool.NODE_GRAPH) {
+        } else {
             buildInspectorControls();
         }
-        buildModulePreviewControls();
         restoreFocus(focusedId);
         updateActionStates();
         refreshVisibleModules();
@@ -550,26 +540,23 @@ public final class PcgEditorScreen extends Screen {
         leftBar = new LayoutRect(OUTER_PAD, topBar.bottom() + uiMetrics.gap, actualLeftWidth, bottomBar.y - uiMetrics.gap - (topBar.bottom() + uiMetrics.gap));
         int contentTop = topBar.bottom() + uiMetrics.gap;
         int contentHeight = bottomBar.y - uiMetrics.gap - contentTop;
-        int defaultPreviewWidth = clamp(uiWidth / 7, uiMetrics.minPreviewWidth, Math.min(uiMetrics.maxPreviewWidth, uiMetrics.unit * 20));
-        int previewWidth = previewPanelWidth > 0 ? previewPanelWidth : defaultPreviewWidth;
-        previewWidth = clamp(previewWidth, uiMetrics.minPreviewWidth, uiMetrics.maxPreviewWidth);
-        previewDockPanel = new LayoutRect(uiWidth - OUTER_PAD - previewWidth, contentTop, previewWidth, contentHeight);
         int workspaceLeft = leftBar.right() + uiMetrics.gap;
-        int workspaceRight = previewDockPanel.x - uiMetrics.gap;
-        workspace = new LayoutRect(workspaceLeft, contentTop, workspaceRight - workspaceLeft, contentHeight);
-        viewport = workspace;
-        int defaultDetailsWidth = clamp(workspace.width / 4, uiMetrics.minDetailsWidth, Math.max(uiMetrics.minDetailsWidth, workspace.width - uiMetrics.unit * 18));
+        int availableContentWidth = uiWidth - OUTER_PAD - workspaceLeft;
+        int defaultDetailsWidth = clamp(uiWidth / 5, uiMetrics.minDetailsWidth, Math.max(uiMetrics.minDetailsWidth, availableContentWidth / 2));
         int overlayDetailsWidth = detailsPanelWidth > 0 ? detailsPanelWidth : defaultDetailsWidth;
-        int maxDetailsWidth = Math.max(uiMetrics.minDetailsWidth, workspace.width - uiMetrics.unit * 12);
+        int maxDetailsWidth = Math.max(uiMetrics.minDetailsWidth, availableContentWidth - uiMetrics.unit * 18);
         overlayDetailsWidth = clamp(overlayDetailsWidth, uiMetrics.minDetailsWidth, maxDetailsWidth);
-        detailsPanel = new LayoutRect(workspace.right() - overlayDetailsWidth, workspace.y, overlayDetailsWidth, workspace.height);
-        rightPanel = new LayoutRect(detailsPanel.x, detailsPanel.y, previewDockPanel.right() - detailsPanel.x, detailsPanel.height);
-        modulePreviewPanel = new LayoutRect(previewDockPanel.x, previewDockPanel.y, previewDockPanel.width, previewDockPanel.height);
+        detailsPanel = new LayoutRect(uiWidth - OUTER_PAD - overlayDetailsWidth, contentTop, overlayDetailsWidth, contentHeight);
+        workspace = new LayoutRect(workspaceLeft, contentTop, detailsPanel.x - uiMetrics.gap - workspaceLeft, contentHeight);
+        viewport = workspace;
+        rightPanel = detailsPanel;
+        previewDockPanel = null;
+        modulePreviewPanel = null;
         inspectorBodyRect = new LayoutRect(detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.unit * 2 + uiMetrics.gap,
                 detailsPanel.width - uiMetrics.inset * 2,
                 Math.max(120, detailsPanel.height - uiMetrics.unit * 5));
         detailsSplitter = new LayoutRect(detailsPanel.x - uiMetrics.splitterSize / 2, workspace.y, uiMetrics.splitterSize, workspace.height);
-        previewSplitter = new LayoutRect(previewDockPanel.x - uiMetrics.splitterSize / 2, workspace.y, uiMetrics.splitterSize, workspace.height);
+        previewSplitter = null;
         bottomSplitter = new LayoutRect(leftBar.right() + uiMetrics.gap, bottomBar.y - uiMetrics.splitterSize / 2,
                 uiWidth - (leftBar.right() + uiMetrics.gap), uiMetrics.splitterSize);
         parameterViewport = null;
@@ -599,15 +586,6 @@ public final class PcgEditorScreen extends Screen {
         exitButton = addButton("exit", x + layout.previewWidth() + layout.regenerateWidth() + layout.smallWidth() * 4 + layout.actionGap() * 6,
                 layout.buttonY(), layout.exitWidth(), uiMetrics.topButtonHeight, "Exit", false, false, this::onClose);
 
-        addButton("pack_prev", layout.packX(), layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, "<", false, false, () -> cyclePack(-1));
-        addButton("pack_next", layout.packX() + layout.clusterWidth() - uiMetrics.unit * 2, layout.buttonY(), uiMetrics.unit * 2, uiMetrics.topButtonHeight, ">", false, false, () -> cyclePack(1));
-        addButton("preset_browser", layout.presetX(), layout.buttonY(), layout.clusterWidth(), uiMetrics.topButtonHeight,
-                topPresetButtonLabel(layout.clusterWidth()), session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY, false,
-                () -> {
-                    session.setActiveTool(PcgEditorTool.PRESET_LIBRARY);
-                    clearFocus();
-                    rebuildUi();
-                });
     }
 
     private void buildToolPalette() {
@@ -654,7 +632,16 @@ public final class PcgEditorScreen extends Screen {
                 });
         presetSearchField.clip = presetBrowserCanvas;
 
-        int y = presetCategoryPanel.y + uiMetrics.inset;
+        int categoryHeaderHeight = uiMetrics.rowHeight;
+        LayoutRect categoryViewport = new LayoutRect(presetCategoryPanel.x, presetCategoryPanel.y + categoryHeaderHeight,
+                presetCategoryPanel.width, Math.max(1, presetCategoryPanel.height - categoryHeaderHeight));
+        int categoryStride = uiMetrics.topButtonHeight + uiMetrics.gap * 2;
+        int categoryContentHeight = PRESET_CATEGORIES.length * categoryStride;
+        int categoryViewportHeight = Math.max(1, presetCategoryPanel.height - categoryHeaderHeight - uiMetrics.inset);
+        maxPresetCategoryScroll = Math.max(0, categoryContentHeight - categoryViewportHeight);
+        presetCategoryScroll = clamp(presetCategoryScroll, 0, maxPresetCategoryScroll);
+
+        int y = presetCategoryPanel.y + categoryHeaderHeight + uiMetrics.inset - presetCategoryScroll;
         int categoryHeight = uiMetrics.topButtonHeight;
         for (String category : PRESET_CATEGORIES) {
             EditorButton categoryButton = addButton("preset_category_" + category.toLowerCase(Locale.ROOT), presetCategoryPanel.x + uiMetrics.gap * 2, y,
@@ -664,8 +651,8 @@ public final class PcgEditorScreen extends Screen {
                         presetListScroll = 0;
                         rebuildUi();
                     });
-            categoryButton.clip = presetCategoryPanel;
-            y += categoryHeight + uiMetrics.gap * 2;
+            categoryButton.clip = categoryViewport;
+            y += categoryStride;
         }
 
         int cardHeight = presetCardHeight();
@@ -677,8 +664,20 @@ public final class PcgEditorScreen extends Screen {
 
         int detailsInnerX = detailsPanel.x + uiMetrics.inset;
         int detailsInnerWidth = detailsPanel.width - uiMetrics.inset * 2;
-        presetUseButton = addButton("preset_use", detailsInnerX, detailsPanel.bottom() - uiMetrics.inset - uiMetrics.topButtonHeight,
-                detailsInnerWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+        int buttonY = detailsPanel.bottom() - uiMetrics.inset - uiMetrics.topButtonHeight;
+        if (isGraphPreset(session.getSelectedPack(), session.getSelectedPreset())) {
+            int buttonGap = uiMetrics.gap * 2;
+            int editWidth = Math.max(uiMetrics.unit * 8, detailsInnerWidth / 2);
+            int useWidth = Math.max(1, detailsInnerWidth - editWidth - buttonGap);
+            presetEditGraphButton = addButton("preset_edit_graph", detailsInnerX, buttonY,
+                    editWidth, uiMetrics.topButtonHeight, "Edit Nodes", false, false, this::openSelectedPresetInWebEditor);
+            presetEditGraphButton.clip = detailsPanel;
+            presetUseButton = addButton("preset_use", detailsInnerX + editWidth + buttonGap, buttonY,
+                    useWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+        } else {
+            presetUseButton = addButton("preset_use", detailsInnerX, buttonY,
+                    detailsInnerWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+        }
         presetUseButton.clip = detailsPanel;
     }
 
@@ -855,11 +854,6 @@ public final class PcgEditorScreen extends Screen {
         guiGraphics.drawString(this.font, "BW", topBar.x + 15, textY, TEXT_BRIGHT);
         PcgTopBarLayoutSpec layout = computeTopBarLayout();
         guiGraphics.drawString(this.font, layout.title(), topBar.x + 46, textY, TEXT_BRIGHT);
-        int chipY = topBar.y + (topBar.height - (uiMetrics.topButtonHeight + 4)) / 2;
-        LayoutRect packRect = new LayoutRect(layout.packX() + uiMetrics.unit * 2, chipY, layout.clusterWidth() - uiMetrics.unit * 4, uiMetrics.topButtonHeight + 4);
-        LayoutRect modeRect = new LayoutRect(layout.modeX(), chipY, layout.modeWidth(), uiMetrics.topButtonHeight + 4);
-        drawToolbarChip(guiGraphics, modeRect, "MODE", session.getActiveTool().getTitle(), TEXT_GREEN);
-        drawToolbarChip(guiGraphics, packRect, "PACK", session.getSelectedPack() == null ? "<none>" : session.getSelectedPack().getMetadata().id, TEXT_BRIGHT);
     }
 
     private void drawLeftBar(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -1029,135 +1023,27 @@ public final class PcgEditorScreen extends Screen {
         y += 10;
 
         y = drawSectionHeader(guiGraphics, y, "HINT");
-        guiGraphics.drawString(this.font, trimToWidth("Node Graph now only inspects the selected graph preset. Use this library to browse and switch presets.", innerWidth), innerX, y + 2, TEXT_MUTED);
+        String hint = card.graph
+                ? "Graph preset: pick the preset here, then click Edit Nodes to open the web editor."
+                : "Pick the preset here, then switch to the matching world tool to place inputs and preview it.";
+        guiGraphics.drawString(this.font, trimToWidth(hint, innerWidth), innerX, y + 2, TEXT_MUTED);
         guiGraphics.disableScissor();
-    }
-
-    private void drawNodeGraphEditor(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        LayoutRect canvas = new LayoutRect(viewport.x + 18, viewport.y + 18, viewport.width - 36, viewport.height - 36);
-        guiGraphics.fill(canvas.x, canvas.y, canvas.right(), canvas.bottom(), 0xDA0B0F15);
-        guiGraphics.drawString(this.font, "PCG NODE GRAPH", canvas.x + 12, canvas.y + 10, TEXT_BRIGHT);
-        guiGraphics.drawString(this.font, "Drag nodes to organize. Graph execution still comes from JSON.", canvas.x + 12, canvas.y + 24, TEXT_MUTED);
-        graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
-        if (graphEditorState.getNodes().isEmpty()) {
-            guiGraphics.drawString(this.font, "No graph found on this preset.", canvas.x + 12, canvas.y + 50, TEXT_YELLOW);
-            guiGraphics.drawString(this.font, "Use a pcg_graph rule with config.graph or open one of the graph demo presets.", canvas.x + 12, canvas.y + 64, TEXT_MUTED);
-            return;
-        }
-        int originX = canvas.x;
-        int originY = canvas.y;
-        for (PcgGraphEditorState.EdgeView edge : graphEditorState.getEdges()) {
-            PcgGraphEditorState.NodeView from = graphEditorState.getNode(edge.from());
-            PcgGraphEditorState.NodeView to = graphEditorState.getNode(edge.to());
-            if (from == null || to == null) {
-                continue;
-            }
-            int x1 = originX + from.x + from.width;
-            int y1 = originY + from.y + from.height / 2;
-            int x2 = originX + to.x;
-            int y2 = originY + to.y + to.height / 2;
-            int midX = (x1 + x2) / 2;
-            drawGraphSegment(guiGraphics, x1, y1, midX, y1, PANEL_ACCENT_SOFT);
-            drawGraphSegment(guiGraphics, midX, y1, midX, y2, PANEL_ACCENT_SOFT);
-            drawGraphSegment(guiGraphics, midX, y2, x2, y2, PANEL_ACCENT_SOFT);
-        }
-        for (PcgGraphEditorState.NodeView node : graphEditorState.getNodes()) {
-            int x = originX + node.x;
-            int y = originY + node.y;
-            boolean selected = node.id.equals(graphEditorState.getSelectedNodeId());
-            boolean hovered = mouseX >= x && mouseX <= x + node.width && mouseY >= y && mouseY <= y + node.height;
-            int bg = selected ? BUTTON_ACTIVE : hovered ? BUTTON_HOVER : BUTTON_BG;
-            guiGraphics.fill(x, y, x + node.width, y + node.height, bg);
-            guiGraphics.fill(x, y, x + node.width, y + 1, selected ? TEXT_BLUE : PANEL_BORDER);
-            guiGraphics.fill(x, y + node.height - 1, x + node.width, y + node.height, PANEL_BORDER);
-            guiGraphics.fill(x, y, x + 1, y + node.height, PANEL_BORDER);
-            guiGraphics.fill(x + node.width - 1, y, x + node.width, y + node.height, PANEL_BORDER);
-            guiGraphics.drawString(this.font, trimToWidth(node.id, node.width - 14), x + 7, y + 8, TEXT_BRIGHT);
-            guiGraphics.drawString(this.font, trimToWidth(node.type, node.width - 14), x + 7, y + 25, TEXT_MUTED);
-        }
-    }
-
-    private void drawGraphSegment(GuiGraphics guiGraphics, int x1, int y1, int x2, int y2, int color) {
-        if (x1 == x2) {
-            guiGraphics.fill(x1 - 1, Math.min(y1, y2), x1 + 1, Math.max(y1, y2) + 1, color);
-        } else if (y1 == y2) {
-            guiGraphics.fill(Math.min(x1, x2), y1 - 1, Math.max(x1, x2) + 1, y1 + 1, color);
-        }
-    }
-
-    private void drawGraphInspector(GuiGraphics guiGraphics) {
-        int innerX = inspectorBodyRect.x;
-        int innerWidth = inspectorBodyRect.width;
-        int y = inspectorBodyRect.y + 12 - inspectorScroll;
-        enableUiScissor(guiGraphics, inspectorBodyRect);
-        y = drawSectionHeader(guiGraphics, y, "GRAPH");
-        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Preset", session.getSelectedPreset() == null ? "<none>" : session.getSelectedPreset().id, TEXT_BRIGHT);
-        drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Nodes", String.valueOf(graphEditorState.getNodes().size()), TEXT_BLUE);
-        drawLabelValue(guiGraphics, innerX, y + 32, innerWidth, "Edges", String.valueOf(graphEditorState.getEdges().size()), TEXT_BLUE);
-        y += 58;
-        y = drawSectionHeader(guiGraphics, y, "SELECTED NODE");
-        PcgGraphEditorState.NodeView node = graphEditorState.getNode(graphEditorState.getSelectedNodeId());
-        if (node == null) {
-            guiGraphics.drawString(this.font, "Click a node in the graph canvas.", innerX, y + 2, TEXT_MUTED);
-        } else {
-            drawLabelValue(guiGraphics, innerX, y, innerWidth, "Id", node.id, TEXT_BRIGHT);
-            drawLabelValue(guiGraphics, innerX, y + 16, innerWidth, "Type", node.type, TEXT_BRIGHT);
-            drawLabelValue(guiGraphics, innerX, y + 32, innerWidth, "Canvas", node.x + ", " + node.y, TEXT_MUTED);
-        }
-        y += 58;
-        y = drawSectionHeader(guiGraphics, y, "DEBUG");
-        guiGraphics.drawString(this.font, trimToWidth("Set debug=true in graph/rule config or pass debug=true override to render node point and tangent overlays.", innerWidth), innerX, y + 2, TEXT_MUTED);
-        guiGraphics.disableScissor();
-    }
-
-    private boolean beginGraphNodeDrag(double uiMouseX, double uiMouseY) {
-        graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
-        int canvasX = viewport.x + 18;
-        int canvasY = viewport.y + 18;
-        PcgGraphEditorState.NodeView node = graphEditorState.hitNode(uiMouseX - canvasX, uiMouseY - canvasY);
-        if (node == null) {
-            graphEditorState.setSelectedNodeId("");
-            return true;
-        }
-        graphEditorState.setSelectedNodeId(node.id);
-        draggingGraphNodeId = node.id;
-        draggingGraphOffsetX = (int) Math.round(uiMouseX - canvasX - node.x);
-        draggingGraphOffsetY = (int) Math.round(uiMouseY - canvasY - node.y);
-        session.log(PcgEditorLogEntry.Severity.INFO, "Selected graph node " + node.id + ".");
-        return true;
-    }
-
-    private void updateGraphNodeDrag(double uiMouseX, double uiMouseY) {
-        PcgGraphEditorState.NodeView node = graphEditorState.getNode(draggingGraphNodeId);
-        if (node == null) {
-            return;
-        }
-        int canvasX = viewport.x + 18;
-        int canvasY = viewport.y + 18;
-        node.x = clamp((int) Math.round(uiMouseX - canvasX - draggingGraphOffsetX), 18, Math.max(18, viewport.width - node.width - 36));
-        node.y = clamp((int) Math.round(uiMouseY - canvasY - draggingGraphOffsetY), 36, Math.max(36, viewport.height - node.height - 36));
     }
 
     private void drawRightPanel(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         drawPanel(guiGraphics, detailsPanel, false);
-        drawPanel(guiGraphics, previewDockPanel, false);
         if (detailsSplitter != null) {
             drawLayoutHandle(guiGraphics, detailsSplitter, true);
         }
-        if (previewSplitter != null) {
-            drawLayoutHandle(guiGraphics, previewSplitter, true);
-        }
-        guiGraphics.drawString(this.font, "DETAILS", detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.inset, TEXT_BRIGHT);
+        String title = session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY ? "PRESET LIBRARY" : "DETAILS";
+        guiGraphics.drawString(this.font, title, detailsPanel.x + uiMetrics.inset, detailsPanel.y + uiMetrics.inset, TEXT_BRIGHT);
         if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY) {
-            drawPresetDetailsInspector(guiGraphics);
+            drawPresetLibrary(guiGraphics, mouseX, mouseY);
         } else if (session.getActiveTool() == PcgEditorTool.MODULE_LIBRARY) {
             drawModuleLibrary(guiGraphics);
-        } else if (session.getActiveTool() == PcgEditorTool.NODE_GRAPH) {
-            drawGraphInspector(guiGraphics);
         } else {
             drawInspector(guiGraphics);
         }
-        drawModulePreview(guiGraphics);
     }
 
     private void drawInspector(GuiGraphics guiGraphics) {
@@ -1267,20 +1153,12 @@ public final class PcgEditorScreen extends Screen {
         int contentY = bottomBar.y + uiMetrics.inset;
         int contentHeight = bottomBar.height - uiMetrics.inset * 2;
         int totalWidth = bottomBar.width - uiMetrics.inset * 2;
-        int sectionWidth = clamp(totalWidth / 7, 150, 196);
-        int statsWidth = clamp(totalWidth / 7, 160, 210);
-        int warningWidth = clamp(totalWidth / 5, 210, 320);
-        int logWidth = totalWidth - sectionWidth * 2 - statsWidth - warningWidth - 12;
+        int warningWidth = Math.max(uiMetrics.unit * 28, (int) Math.round(totalWidth * 0.55D));
+        int logWidth = Math.max(1, totalWidth - warningWidth - uiMetrics.gap * 4);
 
-        drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, sectionWidth, contentHeight), "POSITION", describePosition());
-        contentX += sectionWidth + 4;
-        drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, sectionWidth, contentHeight), "SELECTION", describeSelectionStats());
-        contentX += sectionWidth + 4;
-        drawBottomSection(guiGraphics, new LayoutRect(contentX, contentY, statsWidth, contentHeight), "STATS", describePreviewStats());
-        contentX += statsWidth + 4;
         LayoutRect warningRect = new LayoutRect(contentX, contentY, warningWidth, contentHeight);
         drawBottomSection(guiGraphics, warningRect, "WARNINGS", getWarningSummary());
-        contentX += warningWidth + 4;
+        contentX += warningWidth + uiMetrics.gap * 4;
         messageLogRect = new LayoutRect(contentX, contentY, logWidth, contentHeight);
         drawMessageLog(guiGraphics, messageLogRect);
     }
@@ -1535,8 +1413,9 @@ public final class PcgEditorScreen extends Screen {
     private void handleLayoutDrag(double mouseX, double mouseY) {
         switch (activeDragHandle) {
             case DETAILS -> {
-                int newWidth = workspace.right() - (int) Math.round(mouseX);
-                detailsPanelWidth = clamp(newWidth, uiMetrics.minDetailsWidth, Math.max(uiMetrics.minDetailsWidth, workspace.width - uiMetrics.unit * 12));
+                int newWidth = uiWidth - OUTER_PAD - (int) Math.round(mouseX);
+                int maxWidth = Math.max(uiMetrics.minDetailsWidth, uiWidth - OUTER_PAD - leftBar.right() - uiMetrics.gap - uiMetrics.unit * 18);
+                detailsPanelWidth = clamp(newWidth, uiMetrics.minDetailsWidth, maxWidth);
                 rebuildUi();
             }
             case PREVIEW -> {
@@ -1765,7 +1644,7 @@ public final class PcgEditorScreen extends Screen {
                 focusSelection();
                 return true;
             }
-            case PRESET_LIBRARY, MODULE_LIBRARY, NODE_GRAPH, PAINT_MASK -> {
+            case PRESET_LIBRARY, MODULE_LIBRARY, PAINT_MASK -> {
                 return false;
             }
         }
@@ -2376,12 +2255,17 @@ public final class PcgEditorScreen extends Screen {
         if (presetUseButton != null) {
             presetUseButton.enabled = session.getSelectedPreset() != null;
         }
+        if (presetEditGraphButton != null) {
+            presetEditGraphButton.enabled = isGraphPreset(session.getSelectedPack(), preset);
+        }
     }
 
     private LayoutRect computePresetBrowserCanvas() {
-        int right = detailsPanel == null ? viewport.right() : detailsPanel.x - uiMetrics.gap;
-        int width = Math.max(1, right - viewport.x - 36);
-        return new LayoutRect(viewport.x + 18, viewport.y + 18, width, viewport.height - 36);
+        if (inspectorBodyRect == null) {
+            return detailsPanel;
+        }
+        return new LayoutRect(inspectorBodyRect.x, inspectorBodyRect.y,
+                inspectorBodyRect.width, Math.max(80, inspectorBodyRect.height - uiMetrics.topButtonHeight - uiMetrics.inset * 2));
     }
 
     private int presetCardHeight() {
@@ -2423,7 +2307,6 @@ public final class PcgEditorScreen extends Screen {
         if (!preset.id.equals(session.getSelectedPresetId())) {
             session.setSelectedPresetId(preset.id);
             parameterOverrides.clear();
-            graphEditorState.sync(session.getSelectedPack(), preset);
             session.markDirty("Preset selected: " + preset.id + ".");
         } else {
             session.log(PcgEditorLogEntry.Severity.INFO, "Preset selected: " + preset.id + ".");
@@ -2444,15 +2327,25 @@ public final class PcgEditorScreen extends Screen {
         } else if ("Spline".equals(requiredInput)) {
             session.setActiveTool(PcgEditorTool.SPLINE);
             session.selectSplineIfPresent();
-        } else if (isGraphPreset(session.getSelectedPack(), preset)) {
-            session.setActiveTool(PcgEditorTool.NODE_GRAPH);
-            graphEditorState.sync(session.getSelectedPack(), preset);
-            session.setSelection(PcgEditorSelection.NONE);
         } else {
-            session.setActiveTool(PcgEditorTool.BOX_REGION);
+            session.setActiveTool(PcgEditorTool.SELECT);
+            session.setSelection(PcgEditorSelection.NONE);
         }
         session.log(PcgEditorLogEntry.Severity.INFO, "Using preset " + preset.id + ".");
         rebuildUi();
+    }
+
+    private void openSelectedPresetInWebEditor() {
+        PresetDefinition preset = session.getSelectedPreset();
+        if (!isGraphPreset(session.getSelectedPack(), preset)) {
+            session.log(PcgEditorLogEntry.Severity.WARNING, "Selected preset is not a graph preset.");
+            return;
+        }
+        if (BlockwrightWebBridge.openEditor() == null) {
+            session.log(PcgEditorLogEntry.Severity.ERROR, "Could not open the web editor.");
+            return;
+        }
+        session.log(PcgEditorLogEntry.Severity.INFO, "Opened the web graph editor for preset " + preset.id + ".");
     }
 
     private void refreshPresetBrowserCards() {
@@ -2634,7 +2527,7 @@ public final class PcgEditorScreen extends Screen {
             return List.of("1. Click Use Preset.", "2. Add spline points in the world.", "3. Press Preview, then Bake.");
         }
         if (card.graph) {
-            return List.of("1. Click Use Preset to inspect the graph.", "2. Enable debug=true for point/line overlays.", "3. Press Preview when inputs are ready.");
+            return List.of("1. Click Edit Nodes to open the web editor.", "2. Return here and set region or spline inputs if the preset needs them.", "3. Press Preview when inputs are ready.");
         }
         return List.of("1. Click Use Preset.", "2. Adjust parameters if exposed.", "3. Press Preview, then Bake.");
     }
@@ -2670,9 +2563,6 @@ public final class PcgEditorScreen extends Screen {
             session.setSelection(PcgEditorSelection.NONE);
         } else if (tool == PcgEditorTool.MODULE_LIBRARY) {
             session.setSelection(PcgEditorSelection.MODULE);
-        } else if (tool == PcgEditorTool.NODE_GRAPH) {
-            graphEditorState.sync(session.getSelectedPack(), session.getSelectedPreset());
-            session.setSelection(PcgEditorSelection.NONE);
         } else if (tool == PcgEditorTool.BOX_REGION) {
             session.selectRegionIfPresent();
         } else if (tool == PcgEditorTool.SPLINE) {
@@ -2685,22 +2575,6 @@ public final class PcgEditorScreen extends Screen {
             selectBestObject();
         }
         session.log(PcgEditorLogEntry.Severity.INFO, "Active tool: " + tool.getTitle() + ".");
-        rebuildUi();
-    }
-
-    private void cyclePack(int delta) {
-        List<LoadedPack> packs = Blockwright.getPackManager().getLoadedPacks();
-        if (packs.isEmpty()) {
-            return;
-        }
-        LoadedPack current = session.getSelectedPack();
-        int currentIndex = current == null ? 0 : packs.indexOf(current);
-        int nextIndex = Math.floorMod(currentIndex + delta, packs.size());
-        session.setSelectedPackId(packs.get(nextIndex).getMetadata().id);
-        session.setSelectedPresetId(null);
-        session.setSelectedModuleId(null);
-        parameterOverrides.clear();
-        session.markDirty("Pack selection changed.");
         rebuildUi();
     }
 
@@ -3262,10 +3136,9 @@ public final class PcgEditorScreen extends Screen {
         int unit = metricUnit();
         int gap = metricGap(unit);
         int leftPanel = unit * 8;
-        int viewportArea = unit * 28;
+        int viewportArea = unit * 34;
         int detailsPanel = unit * 18;
-        int previewPanel = unit * 14;
-        return leftPanel + viewportArea + detailsPanel + previewPanel + gap * 4 + OUTER_PAD * 2;
+        return leftPanel + viewportArea + detailsPanel + gap * 3 + OUTER_PAD * 2;
     }
 
     private int minimumLayoutHeight() {
@@ -3273,7 +3146,7 @@ public final class PcgEditorScreen extends Screen {
         int gap = metricGap(unit);
         int topBarHeight = unit * 4;
         int contentHeight = unit * 18;
-        int bottomBarHeight = unit * 8;
+        int bottomBarHeight = unit * 5;
         return topBarHeight + contentHeight + bottomBarHeight + gap * 2 + OUTER_PAD * 2;
     }
 
@@ -3309,18 +3182,6 @@ public final class PcgEditorScreen extends Screen {
         int right = clamp((int) Math.ceil(uiOffsetX + rect.right() * uiScale), 0, this.width);
         int bottom = clamp((int) Math.ceil(uiOffsetY + rect.bottom() * uiScale), 0, this.height);
         guiGraphics.enableScissor(left, top, right, bottom);
-    }
-
-    private void drawToolbarChip(GuiGraphics guiGraphics, LayoutRect rect, String label, String value, int valueColor) {
-        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.bottom(), PANEL_HEADER);
-        guiGraphics.fill(rect.x, rect.y, rect.right(), rect.y + 1, PANEL_BORDER);
-        guiGraphics.fill(rect.x, rect.bottom() - 1, rect.right(), rect.bottom(), PANEL_BORDER);
-        guiGraphics.fill(rect.x, rect.y, rect.x + 1, rect.bottom(), PANEL_BORDER);
-        guiGraphics.fill(rect.right() - 1, rect.y, rect.right(), rect.bottom(), PANEL_BORDER);
-        String prefix = label + ":";
-        guiGraphics.drawString(this.font, prefix, rect.x + 8, rect.y + 8, TEXT_MUTED);
-        int prefixWidth = this.font.width(prefix);
-        guiGraphics.drawString(this.font, trimToWidth(value, rect.width - prefixWidth - 18), rect.x + 12 + prefixWidth, rect.y + 8, valueColor);
     }
 
     private int transformSectionHeight() {

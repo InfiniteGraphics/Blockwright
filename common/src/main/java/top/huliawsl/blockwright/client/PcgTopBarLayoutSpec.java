@@ -24,14 +24,12 @@ record PcgTopBarLayoutSpec(int buttonY, int actionGap, int smallWidth, int previ
             title = "BW";
             titleEnd = topBarX + metrics.inset + font.width("BW") + metrics.gap * 3 + font.width(title);
         }
-        int chipGap = metrics.gap * 4;
         int chipStart = titleEnd + metrics.gap * 4;
-        int chipAvailable = Math.max(metrics.unit * 18, actionStart - chipStart - metrics.gap * 4);
-        int modeWidth = clamp(chipAvailable / 4, metrics.unit * 6, metrics.unit * 10);
-        int clusterWidth = Math.max(metrics.unit * 6, (chipAvailable - modeWidth - chipGap * 2) / 2);
+        int clusterWidth = Math.max(metrics.unit * 18, actionStart - chipStart - metrics.gap * 4);
         int packX = chipStart;
-        int modeX = packX + clusterWidth + chipGap;
-        int presetX = modeX + modeWidth + chipGap;
+        int modeX = packX;
+        int modeWidth = 0;
+        int presetX = packX;
         return new PcgTopBarLayoutSpec(buttonY, actionGap, smallWidth, previewWidth, regenerateWidth,
                 exitWidth, actionStart, clusterWidth, packX, modeX, modeWidth, presetX,
                 title, previewLabel, regenerateLabel);

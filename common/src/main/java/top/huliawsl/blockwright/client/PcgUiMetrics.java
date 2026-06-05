@@ -50,7 +50,7 @@ final class PcgUiMetrics {
         int inset = unit - 2;
         int topButtonHeight = unit * 2;
         int topBarHeight = unit * 4;
-        int defaultBottomBarHeight = unit * 8;
+        int defaultBottomBarHeight = unit * 5;
         int fieldHeight = unit * 2;
         int rowHeight = unit * 2 + unit / 2;
         int moduleRowHeight = rowHeight;
@@ -61,8 +61,8 @@ final class PcgUiMetrics {
         int minDetailsWidth = Math.max(unit * 18, screenWidth / 8);
         int minPreviewWidth = Math.max(unit * 14, screenWidth / 12);
         int maxPreviewWidth = Math.max(minPreviewWidth + unit * 2, screenWidth / 6);
-        int minBottomBarHeight = Math.max(unit * 6, screenHeight / 11);
-        int maxBottomBarHeight = Math.max(minBottomBarHeight + unit * 2, screenHeight / 5);
+        int minBottomBarHeight = Math.max(unit * 4, screenHeight / 16);
+        int maxBottomBarHeight = Math.max(minBottomBarHeight + unit * 3, screenHeight / 5);
         return new PcgUiMetrics(unit, gap, inset, topBarHeight, defaultBottomBarHeight, topButtonHeight,
                 fieldHeight, rowHeight, moduleRowHeight, logRowHeight, splitterSize,
                 leftBarMinWidth, leftBarMaxWidth, minDetailsWidth, minPreviewWidth,
