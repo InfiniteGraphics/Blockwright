@@ -14,6 +14,7 @@ public final class PreviewPlan {
     private final List<PreviewIssue> issues = new ArrayList<>();
     private final List<PreviewDebugPoint> debugPoints = new ArrayList<>();
     private final List<PreviewDebugLine> debugLines = new ArrayList<>();
+    private final List<PreviewNodeSummary> nodeSummaries = new ArrayList<>();
     private boolean stale;
 
     public PreviewPlan(String presetId) {
@@ -58,6 +59,16 @@ public final class PreviewPlan {
 
     public List<PreviewDebugLine> getDebugLines() {
         return Collections.unmodifiableList(debugLines);
+    }
+
+    public void addNodeSummary(PreviewNodeSummary summary) {
+        if (summary != null) {
+            nodeSummaries.add(summary);
+        }
+    }
+
+    public List<PreviewNodeSummary> getNodeSummaries() {
+        return Collections.unmodifiableList(nodeSummaries);
     }
 
     public boolean canBake() {

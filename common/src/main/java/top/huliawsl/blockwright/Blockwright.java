@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.huliawsl.blockwright.command.BlockwrightCommands;
 import top.huliawsl.blockwright.config.BlockwrightConfig;
+import top.huliawsl.blockwright.network.BlockwrightNetwork;
 import top.huliawsl.blockwright.pack.BlockwrightPackManager;
 import top.huliawsl.blockwright.session.BlockwrightSessionManager;
 
@@ -28,6 +29,7 @@ public final class Blockwright {
 
         BlockwrightConfig.reload();
         PACK_MANAGER.reload();
+        BlockwrightNetwork.initCommon();
         CommandRegistrationEvent.EVENT.register(BlockwrightCommands::register);
         PlayerEvent.PLAYER_JOIN.register(SESSION_MANAGER::restoreEditorSpectator);
         PlayerEvent.PLAYER_QUIT.register(SESSION_MANAGER::cleanupPlayer);

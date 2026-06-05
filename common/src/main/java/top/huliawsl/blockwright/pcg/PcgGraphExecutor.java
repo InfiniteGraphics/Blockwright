@@ -1,16 +1,12 @@
 package top.huliawsl.blockwright.pcg;
 
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import top.huliawsl.blockwright.preview.PreviewPlan;
+import top.huliawsl.blockwright.preview.PreviewNodeSummary;
 import top.huliawsl.blockwright.preview.PreviewSeverity;
 import top.huliawsl.blockwright.rule.PresetExecutionContext;
 import top.huliawsl.blockwright.rule.PresetExecutor;
 
-import java.io.Reader;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,11 +20,23 @@ public final class PcgGraphExecutor implements PresetExecutor {
     @Override
     public PreviewPlan execute(PresetExecutionContext context) {
         PreviewPlan plan = new PreviewPlan(context.getPreset().id);
-        JsonObject graphObject = loadGraphObject(context, plan);
+        JsonObject graphObject = PcgGraphIo.loadGraphObject(context.getPack(), context.getRule(), plan);
         if (graphObject == null) {
             return plan;
         }
+        return execute(context, graphObject, plan);
+    }
 
+    public PreviewPlan execute(PresetExecutionContext context, JsonObject graphObject) {
+        PreviewPlan plan = new PreviewPlan(context.getPreset().id);
+        if (graphObject == null) {
+            plan.addIssue(PreviewSeverity.ERROR, "PCG graph payload is missing.");
+            return plan;
+        }
+        return execute(context, graphObject, plan);
+    }
+
+    private PreviewPlan execute(PresetExecutionContext context, JsonObject graphObject, PreviewPlan plan) {
         PcgGraphDefinition graph = PcgGraphDefinition.fromJson(graphObject);
         if (graph.getNodes().isEmpty()) {
             plan.addIssue(PreviewSeverity.ERROR, "PCG graph has no nodes.");
@@ -39,81 +47,6 @@ public final class PcgGraphExecutor implements PresetExecutor {
         graphContext.setDebugEnabled(resolveDebugFlag(context, graphObject));
         executeGraph(graphContext, graph);
         return plan;
-    }
-
-    private JsonObject loadGraphObject(PresetExecutionContext context, PreviewPlan plan) {
-        JsonObject config = context.getRule().config;
-        if (config == null) {
-            JsonObject legacyGraph = defaultGraphForExecutor(context.getRule().executor);
-            if (legacyGraph != null) {
-                return legacyGraph;
-            }
-            plan.addIssue(PreviewSeverity.ERROR, "PCG graph rule config is missing.");
-            return null;
-        }
-        if (config.has("graph") && config.get("graph").isJsonObject()) {
-            return config.getAsJsonObject("graph");
-        }
-        if (config.has("graphFile") && config.get("graphFile").isJsonPrimitive()) {
-            Path graphPath = context.getPack().getRoot().resolve(config.get("graphFile").getAsString()).normalize();
-            if (!graphPath.startsWith(context.getPack().getRoot().normalize())) {
-                plan.addIssue(PreviewSeverity.ERROR, "PCG graphFile escapes pack root: " + graphPath);
-                return null;
-            }
-            if (!Files.exists(graphPath)) {
-                plan.addIssue(PreviewSeverity.ERROR, "PCG graphFile was not found: " + config.get("graphFile").getAsString());
-                return null;
-            }
-            try (Reader reader = Files.newBufferedReader(graphPath)) {
-                JsonElement element = JsonParser.parseReader(reader);
-                if (element != null && element.isJsonObject()) {
-                    return element.getAsJsonObject();
-                }
-                plan.addIssue(PreviewSeverity.ERROR, "PCG graphFile root must be an object: " + config.get("graphFile").getAsString());
-            } catch (Exception exception) {
-                plan.addIssue(PreviewSeverity.ERROR, "Failed to read PCG graphFile: " + exception.getMessage());
-            }
-            return null;
-        }
-        JsonObject legacyGraph = defaultGraphForExecutor(context.getRule().executor);
-        if (legacyGraph != null) {
-            return legacyGraph;
-        }
-        plan.addIssue(PreviewSeverity.ERROR, "PCG graph rule requires either config.graph or config.graphFile.");
-        return null;
-    }
-
-    private JsonObject defaultGraphForExecutor(String executor) {
-        String graphJson = switch (executor == null ? "" : executor) {
-            case "box_building_skeleton" -> """
-                    {
-                      \"debug\": false,
-                      \"nodes\": [
-                        {\"id\":\"region\",\"type\":\"region_input\"},
-                        {\"id\":\"shell\",\"type\":\"box_building_shell\",\"input\":\"region\"},
-                        {\"id\":\"facade\",\"type\":\"facade_modules\",\"input\":\"shell\",\"tagConfig\":\"windowTag\"}
-                      ],
-                      \"edges\": [[\"region\",\"shell\"],[\"shell\",\"facade\"]]
-                    }
-                    """;
-            case "spline_road_skeleton" -> """
-                    {
-                      \"debug\": false,
-                      \"nodes\": [
-                        {\"id\":\"spline\",\"type\":\"spline_input\"},
-                        {\"id\":\"samples\",\"type\":\"resample_spline\",\"input\":\"spline\",\"spacing\":1.0},
-                        {\"id\":\"surface\",\"type\":\"road_surface\",\"input\":\"samples\"},
-                        {\"id\":\"lights\",\"type\":\"place_modules_every_n\",\"input\":\"samples\",\"tagConfig\":\"roadLampTag\",\"every\":6,\"sideMode\":\"alternate\"}
-                      ],
-                      \"edges\": [[\"spline\",\"samples\"],[\"samples\",\"surface\"],[\"samples\",\"lights\"]]
-                    }
-                    """;
-            default -> null;
-        };
-        if (graphJson == null) {
-            return null;
-        }
-        return JsonParser.parseString(graphJson).getAsJsonObject();
     }
 
     private boolean resolveDebugFlag(PresetExecutionContext context, JsonObject graphObject) {
@@ -152,7 +85,7 @@ public final class PcgGraphExecutor implements PresetExecutor {
             nodesById.put(node.getId(), node);
         }
 
-        Map<String, List<String>> incoming = buildIncoming(nodesById, graph.getEdges(), context);
+        Map<String, List<PcgEdge>> incoming = buildIncoming(nodesById, graph.getEdges(), context);
         if (context.getPlan().getOverallSeverity() == PreviewSeverity.ERROR) {
             return;
         }
@@ -163,24 +96,40 @@ public final class PcgGraphExecutor implements PresetExecutor {
         }
 
         Map<String, PcgData> outputs = new LinkedHashMap<>();
-        for (PcgNodeDefinition nodeDefinition : orderedNodes) {
+        for (int order = 0; order < orderedNodes.size(); order++) {
+            PcgNodeDefinition nodeDefinition = orderedNodes.get(order);
             PcgNode node = PcgNodeRegistry.get(nodeDefinition.getType()).orElse(null);
             if (node == null) {
                 context.getPlan().addIssue(PreviewSeverity.ERROR, "Unknown PCG node type: " + nodeDefinition.getType());
                 return;
             }
             Map<String, PcgData> nodeInputs = new LinkedHashMap<>();
-            for (String sourceId : incoming.getOrDefault(nodeDefinition.getId(), List.of())) {
-                nodeInputs.put(sourceId, outputs.getOrDefault(sourceId, PcgData.empty()));
+            for (PcgEdge edge : incoming.getOrDefault(nodeDefinition.getId(), List.of())) {
+                String inputKey = edge.getToPort();
+                if (nodeInputs.containsKey(inputKey)) {
+                    inputKey = edge.getFrom() + "." + edge.getFromPort() + "->" + edge.getToPort();
+                }
+                nodeInputs.put(inputKey, outputs.getOrDefault(edge.getFrom(), PcgData.empty()));
             }
             String explicitInput = context.getNodeString(nodeDefinition, "input", "");
             if (!explicitInput.isBlank()) {
                 nodeInputs.put(explicitInput, outputs.getOrDefault(explicitInput, PcgData.empty()));
             }
+            int blockCountBefore = context.getPlan().getPlannedBlocks().size();
             PcgData output = node.execute(context, nodeDefinition, nodeInputs);
             output = output == null ? PcgData.empty() : output;
             outputs.put(nodeDefinition.getId(), output);
             context.putNodeOutput(nodeDefinition.getId(), output);
+            int plannedBlockDelta = context.getPlan().getPlannedBlocks().size() - blockCountBefore;
+            context.getPlan().addNodeSummary(new PreviewNodeSummary(
+                    nodeDefinition.getId(),
+                    nodeDefinition.getType(),
+                    order,
+                    nodeInputs.size(),
+                    output.getPoints().size(),
+                    output.getVolumes().size(),
+                    plannedBlockDelta
+            ));
             PcgGraphDebugRecorder.record(context, nodeDefinition, output);
             if (context.getPlan().getOverallSeverity() == PreviewSeverity.ERROR) {
                 return;
@@ -188,9 +137,9 @@ public final class PcgGraphExecutor implements PresetExecutor {
         }
     }
 
-    private Map<String, List<String>> buildIncoming(Map<String, PcgNodeDefinition> nodesById, List<PcgEdge> edges,
-                                                    PcgGraphContext context) {
-        Map<String, List<String>> incoming = new HashMap<>();
+    private Map<String, List<PcgEdge>> buildIncoming(Map<String, PcgNodeDefinition> nodesById, List<PcgEdge> edges,
+                                                     PcgGraphContext context) {
+        Map<String, List<PcgEdge>> incoming = new HashMap<>();
         for (PcgEdge edge : edges) {
             if (!nodesById.containsKey(edge.getFrom())) {
                 context.getPlan().addIssue(PreviewSeverity.ERROR, "PCG edge references unknown source node: " + edge.getFrom());
@@ -200,7 +149,7 @@ public final class PcgGraphExecutor implements PresetExecutor {
                 context.getPlan().addIssue(PreviewSeverity.ERROR, "PCG edge references unknown target node: " + edge.getTo());
                 return incoming;
             }
-            incoming.computeIfAbsent(edge.getTo(), ignored -> new ArrayList<>()).add(edge.getFrom());
+            incoming.computeIfAbsent(edge.getTo(), ignored -> new ArrayList<>()).add(edge);
         }
         return incoming;
     }
