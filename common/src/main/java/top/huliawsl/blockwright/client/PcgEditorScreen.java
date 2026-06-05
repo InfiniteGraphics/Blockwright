@@ -17,6 +17,7 @@ import top.huliawsl.blockwright.config.BlockwrightConfig;
 import top.huliawsl.blockwright.client.web.BlockwrightWebBridge;
 import top.huliawsl.blockwright.module.model.ModuleDefinition;
 import top.huliawsl.blockwright.pack.LoadedPack;
+import top.huliawsl.blockwright.pack.PackAuthoringTemplates;
 import top.huliawsl.blockwright.pack.SpongeSchematicData;
 import top.huliawsl.blockwright.preview.PreviewIssue;
 import top.huliawsl.blockwright.preview.PreviewPlan;
@@ -26,8 +27,11 @@ import top.huliawsl.blockwright.preset.model.PresetParameterDefinition;
 import top.huliawsl.blockwright.rule.model.RuleDefinition;
 import top.huliawsl.blockwright.selection.BoxRegionSelection;
 import top.huliawsl.blockwright.selection.SplineSelection;
+import top.huliawsl.blockwright.util.BlockwrightPaths;
 import top.huliawsl.blockwright.util.ValidationIssue;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -115,6 +119,12 @@ public final class PcgEditorScreen extends Screen {
     private EditorButton transformApplyButton;
     private EditorButton presetUseButton;
     private EditorButton presetEditGraphButton;
+    private EditorButton presetPackButton;
+    private EditorButton presetNewPackButton;
+    private EditorButton presetNewPresetButton;
+    private EditorButton presetTemplateButton;
+    private EditorButton presetCreateButton;
+    private EditorButton presetCancelCreateButton;
 
     private EditorField focusedField;
     private EditorField transformXField;
@@ -124,6 +134,10 @@ public final class PcgEditorScreen extends Screen {
     private EditorField moduleCategoryField;
     private EditorField moduleExportField;
     private EditorField presetSearchField;
+    private EditorField presetPackIdField;
+    private EditorField presetPackNameField;
+    private EditorField presetCreatePresetIdField;
+    private EditorField presetCreatePresetNameField;
 
     private int inspectorScroll;
     private int maxInspectorScroll;
@@ -135,6 +149,12 @@ public final class PcgEditorScreen extends Screen {
     private int maxPresetListScroll;
     private String presetSearchQuery = "";
     private String presetCategory = "All";
+    private PresetAuthoringMode presetAuthoringMode = PresetAuthoringMode.NONE;
+    private PackAuthoringTemplates.PresetTemplateKind presetTemplateKind = PackAuthoringTemplates.PresetTemplateKind.REGION_GRAPH;
+    private String pendingPackId = "";
+    private String pendingPackName = "";
+    private String pendingPresetId = "";
+    private String pendingPresetName = "";
     private int logScroll;
     private int maxLogScroll;
     private int uiWidth;
@@ -319,13 +339,17 @@ public final class PcgEditorScreen extends Screen {
         if (showBakeConfirm) {
             return true;
         }
-        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetCategoryPanel != null && presetCategoryPanel.contains(uiMouseX, uiMouseY)) {
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY
+                && presetAuthoringMode == PresetAuthoringMode.NONE
+                && presetCategoryPanel != null && presetCategoryPanel.contains(uiMouseX, uiMouseY)) {
             int scrollAmount = Math.max(uiMetrics.rowHeight, uiMetrics.topButtonHeight + uiMetrics.gap);
             presetCategoryScroll = clamp(presetCategoryScroll - (int) Math.signum(delta) * scrollAmount, 0, maxPresetCategoryScroll);
             rebuildUi();
             return true;
         }
-        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY && presetBrowserCanvas != null && presetBrowserCanvas.contains(uiMouseX, uiMouseY)) {
+        if (session.getActiveTool() == PcgEditorTool.PRESET_LIBRARY
+                && presetAuthoringMode == PresetAuthoringMode.NONE
+                && presetBrowserCanvas != null && presetBrowserCanvas.contains(uiMouseX, uiMouseY)) {
             int scrollAmount = Math.max(uiMetrics.rowHeight * 2, (int) Math.round(presetCardHeight() * Math.max(1.0D, Math.abs(delta))));
             presetListScroll = clamp(presetListScroll - (int) Math.signum(delta) * scrollAmount, 0, maxPresetListScroll);
             return true;
@@ -500,6 +524,12 @@ public final class PcgEditorScreen extends Screen {
         transformApplyButton = null;
         presetUseButton = null;
         presetEditGraphButton = null;
+        presetPackButton = null;
+        presetNewPackButton = null;
+        presetNewPresetButton = null;
+        presetTemplateButton = null;
+        presetCreateButton = null;
+        presetCancelCreateButton = null;
         transformXField = null;
         transformYField = null;
         transformZField = null;
@@ -507,6 +537,10 @@ public final class PcgEditorScreen extends Screen {
         moduleCategoryField = null;
         moduleExportField = null;
         presetSearchField = null;
+        presetPackIdField = null;
+        presetPackNameField = null;
+        presetCreatePresetIdField = null;
+        presetCreatePresetNameField = null;
         focusedField = null;
 
         updateUiMetrics();
@@ -612,73 +646,141 @@ public final class PcgEditorScreen extends Screen {
         visiblePresetCards.addAll(collectVisiblePresetCards());
         presetBrowserCanvas = computePresetBrowserCanvas();
         int headerHeight = uiMetrics.unit * 5;
-        int maxCategoryWidth = Math.max(uiMetrics.unit * 8, presetBrowserCanvas.width / 3);
-        int categoryWidth = clamp(presetBrowserCanvas.width / 5, Math.min(uiMetrics.unit * 11, maxCategoryWidth), Math.min(uiMetrics.unit * 15, maxCategoryWidth));
-        presetCategoryPanel = new LayoutRect(presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + headerHeight,
-                categoryWidth, presetBrowserCanvas.height - headerHeight - uiMetrics.inset);
-        presetListViewport = new LayoutRect(presetCategoryPanel.right() + uiMetrics.gap * 4, presetCategoryPanel.y,
-                Math.max(1, presetBrowserCanvas.right() - presetCategoryPanel.right() - uiMetrics.gap * 4 - uiMetrics.inset),
-                presetCategoryPanel.height);
-
-        int maxSearchWidth = Math.max(uiMetrics.unit * 8, presetBrowserCanvas.width - uiMetrics.inset * 2);
-        int searchWidth = clamp(presetBrowserCanvas.width / 3, Math.min(uiMetrics.unit * 16, maxSearchWidth), Math.min(uiMetrics.unit * 26, maxSearchWidth));
-        presetSearchField = addField("preset_search", presetBrowserCanvas.right() - uiMetrics.inset - searchWidth,
-                presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 2, searchWidth, uiMetrics.fieldHeight, presetSearchQuery, false,
-                value -> {
-                    presetSearchQuery = value == null ? "" : value;
-                    presetListScroll = 0;
-                    visiblePresetCards.clear();
-                    visiblePresetCards.addAll(collectVisiblePresetCards());
-                });
-        presetSearchField.clip = presetBrowserCanvas;
-
-        int categoryHeaderHeight = uiMetrics.rowHeight;
-        LayoutRect categoryViewport = new LayoutRect(presetCategoryPanel.x, presetCategoryPanel.y + categoryHeaderHeight,
-                presetCategoryPanel.width, Math.max(1, presetCategoryPanel.height - categoryHeaderHeight));
-        int categoryStride = uiMetrics.topButtonHeight + uiMetrics.gap * 2;
-        int categoryContentHeight = PRESET_CATEGORIES.length * categoryStride;
-        int categoryViewportHeight = Math.max(1, presetCategoryPanel.height - categoryHeaderHeight - uiMetrics.inset);
-        maxPresetCategoryScroll = Math.max(0, categoryContentHeight - categoryViewportHeight);
-        presetCategoryScroll = clamp(presetCategoryScroll, 0, maxPresetCategoryScroll);
-
-        int y = presetCategoryPanel.y + categoryHeaderHeight + uiMetrics.inset - presetCategoryScroll;
-        int categoryHeight = uiMetrics.topButtonHeight;
-        for (String category : PRESET_CATEGORIES) {
-            EditorButton categoryButton = addButton("preset_category_" + category.toLowerCase(Locale.ROOT), presetCategoryPanel.x + uiMetrics.gap * 2, y,
-                    presetCategoryPanel.width - uiMetrics.gap * 4, categoryHeight, category, category.equals(presetCategory), false,
-                    () -> {
-                        presetCategory = category;
-                        presetListScroll = 0;
-                        rebuildUi();
-                    });
-            categoryButton.clip = categoryViewport;
-            y += categoryStride;
-        }
-
-        int cardHeight = presetCardHeight();
-        maxPresetListScroll = Math.max(0, visiblePresetCards.size() * (cardHeight + uiMetrics.gap * 3) - presetListViewport.height + uiMetrics.inset);
-        presetListScroll = clamp(presetListScroll, 0, maxPresetListScroll);
-
-        maxInspectorScroll = Math.max(0, uiMetrics.unit * 24 - inspectorBodyRect.height);
-        inspectorScroll = clamp(inspectorScroll, 0, maxInspectorScroll);
-
         int detailsInnerX = detailsPanel.x + uiMetrics.inset;
         int detailsInnerWidth = detailsPanel.width - uiMetrics.inset * 2;
         int buttonY = detailsPanel.bottom() - uiMetrics.inset - uiMetrics.topButtonHeight;
-        if (isGraphPreset(session.getSelectedPack(), session.getSelectedPreset())) {
-            int buttonGap = uiMetrics.gap * 2;
-            int editWidth = Math.max(uiMetrics.unit * 8, detailsInnerWidth / 2);
-            int useWidth = Math.max(1, detailsInnerWidth - editWidth - buttonGap);
-            presetEditGraphButton = addButton("preset_edit_graph", detailsInnerX, buttonY,
-                    editWidth, uiMetrics.topButtonHeight, "Edit Nodes", false, false, this::openSelectedPresetInWebEditor);
-            presetEditGraphButton.clip = detailsPanel;
-            presetUseButton = addButton("preset_use", detailsInnerX + editWidth + buttonGap, buttonY,
-                    useWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
-        } else {
-            presetUseButton = addButton("preset_use", detailsInnerX, buttonY,
-                    detailsInnerWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+        int buttonGap = uiMetrics.gap * 2;
+
+        if (presetAuthoringMode == PresetAuthoringMode.NONE) {
+            int maxCategoryWidth = Math.max(uiMetrics.unit * 8, presetBrowserCanvas.width / 3);
+            int categoryWidth = clamp(presetBrowserCanvas.width / 5, Math.min(uiMetrics.unit * 11, maxCategoryWidth), Math.min(uiMetrics.unit * 15, maxCategoryWidth));
+            presetCategoryPanel = new LayoutRect(presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + headerHeight,
+                    categoryWidth, presetBrowserCanvas.height - headerHeight - uiMetrics.inset);
+            presetListViewport = new LayoutRect(presetCategoryPanel.right() + uiMetrics.gap * 4, presetCategoryPanel.y,
+                    Math.max(1, presetBrowserCanvas.right() - presetCategoryPanel.right() - uiMetrics.gap * 4 - uiMetrics.inset),
+                    presetCategoryPanel.height);
+
+            int packButtonWidth = clamp(presetBrowserCanvas.width / 4, uiMetrics.unit * 10, uiMetrics.unit * 15);
+            presetPackButton = addButton("preset_pack", presetBrowserCanvas.x + uiMetrics.inset,
+                    presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 2, packButtonWidth, uiMetrics.topButtonHeight,
+                    packButtonLabel(), false, false, this::cycleSelectedPack);
+            presetPackButton.clip = presetBrowserCanvas;
+
+            int maxSearchWidth = Math.max(uiMetrics.unit * 8, presetBrowserCanvas.width - uiMetrics.inset * 2 - packButtonWidth - buttonGap);
+            int searchWidth = clamp(presetBrowserCanvas.width / 3, Math.min(uiMetrics.unit * 14, maxSearchWidth), Math.min(uiMetrics.unit * 22, maxSearchWidth));
+            presetSearchField = addField("preset_search", presetBrowserCanvas.right() - uiMetrics.inset - searchWidth,
+                    presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 2, searchWidth, uiMetrics.fieldHeight, presetSearchQuery, false,
+                    value -> {
+                        presetSearchQuery = value == null ? "" : value;
+                        presetListScroll = 0;
+                        visiblePresetCards.clear();
+                        visiblePresetCards.addAll(collectVisiblePresetCards());
+                    });
+            presetSearchField.clip = presetBrowserCanvas;
+
+            int categoryHeaderHeight = uiMetrics.rowHeight;
+            LayoutRect categoryViewport = new LayoutRect(presetCategoryPanel.x, presetCategoryPanel.y + categoryHeaderHeight,
+                    presetCategoryPanel.width, Math.max(1, presetCategoryPanel.height - categoryHeaderHeight));
+            int categoryStride = uiMetrics.topButtonHeight + uiMetrics.gap * 2;
+            int categoryContentHeight = PRESET_CATEGORIES.length * categoryStride;
+            int categoryViewportHeight = Math.max(1, presetCategoryPanel.height - categoryHeaderHeight - uiMetrics.inset);
+            maxPresetCategoryScroll = Math.max(0, categoryContentHeight - categoryViewportHeight);
+            presetCategoryScroll = clamp(presetCategoryScroll, 0, maxPresetCategoryScroll);
+
+            int y = presetCategoryPanel.y + categoryHeaderHeight + uiMetrics.inset - presetCategoryScroll;
+            int categoryHeight = uiMetrics.topButtonHeight;
+            for (String category : PRESET_CATEGORIES) {
+                EditorButton categoryButton = addButton("preset_category_" + category.toLowerCase(Locale.ROOT), presetCategoryPanel.x + uiMetrics.gap * 2, y,
+                        presetCategoryPanel.width - uiMetrics.gap * 4, categoryHeight, category, category.equals(presetCategory), false,
+                        () -> {
+                            presetCategory = category;
+                            presetListScroll = 0;
+                            rebuildUi();
+                        });
+                categoryButton.clip = categoryViewport;
+                y += categoryStride;
+            }
+
+            int cardHeight = presetCardHeight();
+            maxPresetListScroll = Math.max(0, visiblePresetCards.size() * (cardHeight + uiMetrics.gap * 3) - presetListViewport.height + uiMetrics.inset);
+            presetListScroll = clamp(presetListScroll, 0, maxPresetListScroll);
+            maxInspectorScroll = 0;
+            inspectorScroll = 0;
+
+            boolean graphPreset = isGraphPreset(session.getSelectedPack(), session.getSelectedPreset());
+            int actionCount = graphPreset ? 4 : 3;
+            int baseWidth = Math.max(uiMetrics.unit * 5, (detailsInnerWidth - buttonGap * (actionCount - 1)) / actionCount);
+
+            presetNewPackButton = addButton("preset_new_pack", detailsInnerX, buttonY,
+                    baseWidth, uiMetrics.topButtonHeight, "New Pack", false, false, this::beginCreatePack);
+            presetNewPackButton.clip = detailsPanel;
+
+            presetNewPresetButton = addButton("preset_new_preset", detailsInnerX + baseWidth + buttonGap, buttonY,
+                    baseWidth, uiMetrics.topButtonHeight, "New Preset", false, false, this::beginCreatePreset);
+            presetNewPresetButton.clip = detailsPanel;
+
+            if (graphPreset) {
+                presetEditGraphButton = addButton("preset_edit_graph", detailsInnerX + (baseWidth + buttonGap) * 2, buttonY,
+                        baseWidth, uiMetrics.topButtonHeight, "Edit Nodes", false, false, this::openSelectedPresetInWebEditor);
+                presetEditGraphButton.clip = detailsPanel;
+                int useX = detailsInnerX + (baseWidth + buttonGap) * 3;
+                int useWidth = Math.max(1, detailsInnerX + detailsInnerWidth - useX);
+                presetUseButton = addButton("preset_use", useX, buttonY,
+                        useWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+            } else {
+                int useX = detailsInnerX + (baseWidth + buttonGap) * 2;
+                int useWidth = Math.max(1, detailsInnerX + detailsInnerWidth - useX);
+                presetUseButton = addButton("preset_use", useX, buttonY,
+                        useWidth, uiMetrics.topButtonHeight, "Use Preset", false, false, this::useSelectedPresetFromBrowser);
+            }
+            presetUseButton.clip = detailsPanel;
+            return;
         }
-        presetUseButton.clip = detailsPanel;
+
+        presetCategoryPanel = null;
+        presetListViewport = null;
+        maxPresetCategoryScroll = 0;
+        presetCategoryScroll = 0;
+        maxPresetListScroll = 0;
+        presetListScroll = 0;
+        maxInspectorScroll = 0;
+        inspectorScroll = 0;
+
+        int formX = presetBrowserCanvas.x + uiMetrics.inset;
+        int formWidth = presetBrowserCanvas.width - uiMetrics.inset * 2;
+        int fieldY = presetBrowserCanvas.y + headerHeight + uiMetrics.unit * 2;
+        int formRowGap = uiMetrics.unit * 3;
+        int templateButtonY = fieldY + formRowGap * 2 + uiMetrics.unit * 2;
+
+        if (presetAuthoringMode == PresetAuthoringMode.CREATE_PACK) {
+            presetPackIdField = addField("preset_pack_id", formX, fieldY, formWidth, uiMetrics.fieldHeight, pendingPackId, false,
+                    value -> pendingPackId = value == null ? "" : value.trim());
+            presetPackNameField = addField("preset_pack_name", formX, fieldY + formRowGap, formWidth, uiMetrics.fieldHeight, pendingPackName, false,
+                    value -> pendingPackName = value == null ? "" : value);
+            presetPackIdField.clip = presetBrowserCanvas;
+            presetPackNameField.clip = presetBrowserCanvas;
+        } else {
+            presetCreatePresetIdField = addField("preset_create_id", formX, fieldY, formWidth, uiMetrics.fieldHeight, pendingPresetId, false,
+                    value -> pendingPresetId = value == null ? "" : value.trim());
+            presetCreatePresetNameField = addField("preset_create_name", formX, fieldY + formRowGap, formWidth, uiMetrics.fieldHeight, pendingPresetName, false,
+                    value -> pendingPresetName = value == null ? "" : value);
+            presetCreatePresetIdField.clip = presetBrowserCanvas;
+            presetCreatePresetNameField.clip = presetBrowserCanvas;
+            presetTemplateButton = addButton("preset_template", formX, templateButtonY, formWidth, uiMetrics.topButtonHeight,
+                    "Template: " + presetTemplateKind.getLabel(), false, false, this::cyclePresetTemplateKind);
+            presetTemplateButton.clip = presetBrowserCanvas;
+        }
+
+        int createWidth = Math.max(uiMetrics.unit * 8, (detailsInnerWidth - buttonGap) / 2);
+        int cancelX = detailsInnerX + createWidth + buttonGap;
+        int cancelWidth = Math.max(1, detailsInnerX + detailsInnerWidth - cancelX);
+        presetCreateButton = addButton("preset_create", detailsInnerX, buttonY,
+                createWidth, uiMetrics.topButtonHeight, presetAuthoringMode == PresetAuthoringMode.CREATE_PACK ? "Create Pack" : "Create Preset",
+                false, false, this::submitPresetAuthoring);
+        presetCreateButton.clip = detailsPanel;
+        presetCancelCreateButton = addButton("preset_cancel_create", cancelX, buttonY,
+                cancelWidth, uiMetrics.topButtonHeight, "Cancel", false, false, this::cancelPresetAuthoring);
+        presetCancelCreateButton.clip = detailsPanel;
     }
 
     private void buildInspectorControls() {
@@ -892,12 +994,24 @@ public final class PcgEditorScreen extends Screen {
         }
         refreshPresetBrowserCards();
         drawPanel(guiGraphics, presetBrowserCanvas, true);
-        guiGraphics.drawString(this.font, "PRESET LIBRARY", presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + uiMetrics.inset + 3, TEXT_BRIGHT);
+        String libraryTitle = presetAuthoringMode == PresetAuthoringMode.CREATE_PACK
+                ? "NEW PACK"
+                : presetAuthoringMode == PresetAuthoringMode.CREATE_PRESET ? "NEW PRESET" : "PRESET LIBRARY";
+        guiGraphics.drawString(this.font, libraryTitle, presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + uiMetrics.inset + 3, TEXT_BRIGHT);
+
+        if (presetAuthoringMode != PresetAuthoringMode.NONE) {
+            drawPresetAuthoringPanel(guiGraphics);
+            return;
+        }
+
         int descriptionWidth = presetSearchField == null
                 ? presetBrowserCanvas.width - uiMetrics.inset * 2
                 : Math.max(uiMetrics.unit * 12, presetSearchField.bounds.x - presetBrowserCanvas.x - uiMetrics.inset * 2);
         guiGraphics.drawString(this.font, trimToWidth("Search, filter, and pick the generator before editing region or spline inputs.", descriptionWidth),
                 presetBrowserCanvas.x + uiMetrics.inset, presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 6, TEXT_MUTED);
+        if (presetPackButton != null) {
+            guiGraphics.drawString(this.font, "Pack", presetPackButton.bounds.x, presetPackButton.bounds.y - 11, TEXT_MUTED);
+        }
         if (presetSearchField != null) {
             guiGraphics.drawString(this.font, "Search", presetSearchField.bounds.x, presetSearchField.bounds.y - 11, TEXT_MUTED);
         }
@@ -931,6 +1045,43 @@ public final class PcgEditorScreen extends Screen {
         if (visiblePresetCards.isEmpty()) {
             guiGraphics.drawString(this.font, "No presets match this filter.", presetListViewport.x + uiMetrics.inset, presetListViewport.y + 44, TEXT_YELLOW);
         }
+    }
+
+    private void drawPresetAuthoringPanel(GuiGraphics guiGraphics) {
+        int innerX = presetBrowserCanvas.x + uiMetrics.inset;
+        int innerWidth = presetBrowserCanvas.width - uiMetrics.inset * 2;
+        int y = presetBrowserCanvas.y + uiMetrics.inset + uiMetrics.unit + 6;
+        LoadedPack selectedPack = session.getSelectedPack();
+
+        if (presetAuthoringMode == PresetAuthoringMode.CREATE_PACK) {
+            guiGraphics.drawString(this.font, trimToWidth("Create a player pack under blockwright_packs and scaffold its folders.", innerWidth),
+                    innerX, y, TEXT_MUTED);
+            y += 28;
+            guiGraphics.drawString(this.font, "Pack Id", innerX, y, TEXT_MUTED);
+            y += uiMetrics.unit * 3;
+            guiGraphics.drawString(this.font, "Pack Name", innerX, y, TEXT_MUTED);
+            y += uiMetrics.unit * 4;
+            guiGraphics.drawString(this.font, trimToWidth("This creates pack.json, presets/, rules/, and modules/.", innerWidth),
+                    innerX, y, TEXT_MUTED);
+            y += 18;
+            guiGraphics.drawString(this.font, trimToWidth("Folder: blockwright_packs/" + safeAuthoringIdPreview(pendingPackId), innerWidth),
+                    innerX, y, TEXT_BLUE);
+            return;
+        }
+
+        guiGraphics.drawString(this.font, trimToWidth("Create a preset template inside the selected pack, then open it in the node editor.", innerWidth),
+                innerX, y, TEXT_MUTED);
+        y += 28;
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Target Pack", selectedPack == null ? "<none>" : selectedPack.getMetadata().id, TEXT_BLUE);
+        y += 18;
+        guiGraphics.drawString(this.font, "Preset Id", innerX, y, TEXT_MUTED);
+        y += uiMetrics.unit * 3;
+        guiGraphics.drawString(this.font, "Preset Name", innerX, y, TEXT_MUTED);
+        y += uiMetrics.unit * 4;
+        drawLabelValue(guiGraphics, innerX, y, innerWidth, "Template", presetTemplateKind.getLabel(), TEXT_GREEN);
+        y += 18;
+        guiGraphics.drawString(this.font, trimToWidth("Files: presets/" + safeAuthoringIdPreview(pendingPresetId) + ".preset.json and rules/" + safeAuthoringIdPreview(pendingPresetId) + ".rule.json", innerWidth),
+                innerX, y, TEXT_MUTED);
     }
 
     private void drawPresetCard(GuiGraphics guiGraphics, LayoutRect rect, PresetCardView card, int mouseX, int mouseY) {
@@ -2253,10 +2404,28 @@ public final class PcgEditorScreen extends Screen {
             transformApplyButton.enabled = isTransformSelection();
         }
         if (presetUseButton != null) {
-            presetUseButton.enabled = session.getSelectedPreset() != null;
+            presetUseButton.enabled = presetAuthoringMode == PresetAuthoringMode.NONE && session.getSelectedPreset() != null;
         }
         if (presetEditGraphButton != null) {
-            presetEditGraphButton.enabled = isGraphPreset(session.getSelectedPack(), preset);
+            presetEditGraphButton.enabled = presetAuthoringMode == PresetAuthoringMode.NONE && isGraphPreset(session.getSelectedPack(), preset);
+        }
+        if (presetPackButton != null) {
+            presetPackButton.enabled = Blockwright.getPackManager().getLoadedPackCount() > 1;
+        }
+        if (presetNewPackButton != null) {
+            presetNewPackButton.enabled = presetAuthoringMode == PresetAuthoringMode.NONE;
+        }
+        if (presetNewPresetButton != null) {
+            presetNewPresetButton.enabled = presetAuthoringMode == PresetAuthoringMode.NONE && session.getSelectedPack() != null;
+        }
+        if (presetTemplateButton != null) {
+            presetTemplateButton.enabled = presetAuthoringMode == PresetAuthoringMode.CREATE_PRESET;
+        }
+        if (presetCreateButton != null) {
+            presetCreateButton.enabled = canSubmitPresetAuthoring();
+        }
+        if (presetCancelCreateButton != null) {
+            presetCancelCreateButton.enabled = presetAuthoringMode != PresetAuthoringMode.NONE;
         }
     }
 
@@ -2346,6 +2515,207 @@ public final class PcgEditorScreen extends Screen {
             return;
         }
         session.log(PcgEditorLogEntry.Severity.INFO, "Opened the web graph editor for preset " + preset.id + ".");
+    }
+
+    private void cycleSelectedPack() {
+        List<LoadedPack> packs = Blockwright.getPackManager().getLoadedPacks();
+        if (packs.size() <= 1) {
+            return;
+        }
+        String currentId = safe(session.getSelectedPackId());
+        int currentIndex = 0;
+        for (int i = 0; i < packs.size(); i++) {
+            if (currentId.equals(packs.get(i).getMetadata().id)) {
+                currentIndex = i;
+                break;
+            }
+        }
+        LoadedPack nextPack = packs.get((currentIndex + 1) % packs.size());
+        session.setSelectedPackId(nextPack.getMetadata().id);
+        session.setSelectedPresetId(null);
+        parameterOverrides.clear();
+        session.markDirty("Preset pack changed.");
+        rebuildUi();
+    }
+
+    private void beginCreatePack() {
+        clearFocus();
+        presetAuthoringMode = PresetAuthoringMode.CREATE_PACK;
+        pendingPackId = suggestUniquePackId("my_pack");
+        pendingPackName = "";
+        rebuildUi();
+    }
+
+    private void beginCreatePreset() {
+        if (session.getSelectedPack() == null) {
+            session.log(PcgEditorLogEntry.Severity.ERROR, "Create a pack first, then add presets to it.");
+            return;
+        }
+        clearFocus();
+        presetAuthoringMode = PresetAuthoringMode.CREATE_PRESET;
+        presetTemplateKind = defaultTemplateKindForSelection();
+        pendingPresetId = suggestUniquePresetId(defaultPresetIdBase(presetTemplateKind));
+        pendingPresetName = "";
+        rebuildUi();
+    }
+
+    private void cancelPresetAuthoring() {
+        clearFocus();
+        presetAuthoringMode = PresetAuthoringMode.NONE;
+        pendingPackId = "";
+        pendingPackName = "";
+        pendingPresetId = "";
+        pendingPresetName = "";
+        rebuildUi();
+    }
+
+    private void cyclePresetTemplateKind() {
+        presetTemplateKind = presetTemplateKind == PackAuthoringTemplates.PresetTemplateKind.REGION_GRAPH
+                ? PackAuthoringTemplates.PresetTemplateKind.SPLINE_GRAPH
+                : PackAuthoringTemplates.PresetTemplateKind.REGION_GRAPH;
+        if (pendingPresetId.isBlank() || pendingPresetId.startsWith("new_region_graph") || pendingPresetId.startsWith("new_spline_graph")) {
+            pendingPresetId = suggestUniquePresetId(defaultPresetIdBase(presetTemplateKind));
+        }
+        rebuildUi();
+    }
+
+    private void submitPresetAuthoring() {
+        if (!canSubmitPresetAuthoring()) {
+            session.log(PcgEditorLogEntry.Severity.WARNING, "Fill in a valid id before creating files.");
+            return;
+        }
+        if (presetAuthoringMode == PresetAuthoringMode.CREATE_PACK) {
+            createPackFromTemplate();
+            return;
+        }
+        if (presetAuthoringMode == PresetAuthoringMode.CREATE_PRESET) {
+            createPresetFromTemplate();
+        }
+    }
+
+    private void createPackFromTemplate() {
+        String packId = pendingPackId.trim();
+        String packName = pendingPackName.trim();
+        Path packRoot = BlockwrightPaths.ensurePresetRoot();
+        try {
+            PackAuthoringTemplates.createPack(packRoot, packId, packName);
+            reloadPackData();
+            session.setSelectedPackId(packId);
+            session.setSelectedPresetId(null);
+            parameterOverrides.clear();
+            session.markDirty("Created pack " + packId + ".");
+            session.log(PcgEditorLogEntry.Severity.SUCCESS, "Created pack " + packId + " under blockwright_packs.");
+            cancelPresetAuthoring();
+        } catch (IOException exception) {
+            session.log(PcgEditorLogEntry.Severity.ERROR, "Could not create pack: " + exception.getMessage());
+        }
+    }
+
+    private void createPresetFromTemplate() {
+        LoadedPack pack = session.getSelectedPack();
+        if (pack == null) {
+            session.log(PcgEditorLogEntry.Severity.ERROR, "No pack is selected.");
+            return;
+        }
+        String presetId = pendingPresetId.trim();
+        String presetName = pendingPresetName.trim();
+        Path packRoot = BlockwrightPaths.ensurePresetRoot();
+        try {
+            PackAuthoringTemplates.createPreset(packRoot, pack.getMetadata().id, presetId, presetName, presetTemplateKind);
+            reloadPackData();
+            session.setSelectedPackId(pack.getMetadata().id);
+            session.setSelectedPresetId(presetId);
+            parameterOverrides.clear();
+            session.markDirty("Created preset " + presetId + ".");
+            session.log(PcgEditorLogEntry.Severity.SUCCESS,
+                    "Created preset " + presetId + " in pack " + pack.getMetadata().id + ".");
+            cancelPresetAuthoring();
+        } catch (IOException exception) {
+            session.log(PcgEditorLogEntry.Severity.ERROR, "Could not create preset: " + exception.getMessage());
+        }
+    }
+
+    private void reloadPackData() {
+        Blockwright.getPackManager().reload();
+        sendCommand("blockwright reload");
+    }
+
+    private boolean canSubmitPresetAuthoring() {
+        if (presetAuthoringMode == PresetAuthoringMode.CREATE_PACK) {
+            String packId = pendingPackId.trim();
+            if (!isValidAuthoringId(packId)) {
+                return false;
+            }
+            if (Blockwright.getPackManager().findPack(packId).isPresent()) {
+                return false;
+            }
+            return !java.nio.file.Files.exists(BlockwrightPaths.ensurePresetRoot().resolve(packId).resolve("pack.json"));
+        }
+        if (presetAuthoringMode == PresetAuthoringMode.CREATE_PRESET) {
+            String presetId = pendingPresetId.trim();
+            return session.getSelectedPack() != null
+                    && isValidAuthoringId(presetId)
+                    && Blockwright.getPackManager().findPreset(presetId).isEmpty();
+        }
+        return false;
+    }
+
+    private boolean isValidAuthoringId(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            boolean valid = (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9')
+                    || c == '_' || c == '-' || c == '.';
+            if (!valid) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String suggestUniquePackId(String base) {
+        return suggestUniqueId(base, true);
+    }
+
+    private String suggestUniquePresetId(String base) {
+        return suggestUniqueId(base, false);
+    }
+
+    private String suggestUniqueId(String base, boolean packId) {
+        String candidate = base;
+        int suffix = 2;
+        while (true) {
+            boolean exists = packId
+                    ? Blockwright.getPackManager().findPack(candidate).isPresent()
+                    : Blockwright.getPackManager().findPreset(candidate).isPresent();
+            if (!exists) {
+                return candidate;
+            }
+            candidate = base + "_" + suffix;
+            suffix++;
+        }
+    }
+
+    private PackAuthoringTemplates.PresetTemplateKind defaultTemplateKindForSelection() {
+        return "Spline".equals(describePresetMode(session.getSelectedPreset()))
+                ? PackAuthoringTemplates.PresetTemplateKind.SPLINE_GRAPH
+                : PackAuthoringTemplates.PresetTemplateKind.REGION_GRAPH;
+    }
+
+    private String defaultPresetIdBase(PackAuthoringTemplates.PresetTemplateKind templateKind) {
+        return templateKind == PackAuthoringTemplates.PresetTemplateKind.SPLINE_GRAPH ? "new_spline_graph" : "new_region_graph";
+    }
+
+    private String packButtonLabel() {
+        LoadedPack pack = session.getSelectedPack();
+        return "Pack: " + (pack == null ? "<none>" : pack.getMetadata().id);
+    }
+
+    private String safeAuthoringIdPreview(String value) {
+        return value == null || value.isBlank() ? "<id>" : value.trim();
     }
 
     private void refreshPresetBrowserCards() {
@@ -3509,6 +3879,12 @@ public final class PcgEditorScreen extends Screen {
     }
 
     private record ViewportSelectionTarget(PcgEditorSelection selection, int regionCornerIndex, int splinePointIndex, String logMessage) {
+    }
+
+    private enum PresetAuthoringMode {
+        NONE,
+        CREATE_PACK,
+        CREATE_PRESET
     }
 
     private enum DragHandle {
