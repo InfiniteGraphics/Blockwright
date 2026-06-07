@@ -1,6 +1,7 @@
 package top.huliawsl.blockwright.pcg.node;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonPrimitive;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.phys.Vec3;
@@ -8,6 +9,7 @@ import top.huliawsl.blockwright.pcg.PcgData;
 import top.huliawsl.blockwright.pcg.PcgGraphContext;
 import top.huliawsl.blockwright.pcg.PcgNodeDefinition;
 import top.huliawsl.blockwright.pcg.PcgPoint;
+import top.huliawsl.blockwright.pcg.PcgVolume;
 
 import java.util.List;
 import java.util.Locale;
@@ -67,6 +69,119 @@ final class PcgNodeUtil {
         };
     }
 
+    static JsonElement resolveConfigValue(PcgGraphContext context, PcgNodeDefinition node, String key, JsonElement fallback) {
+        JsonElement raw = node.getConfig().has(key) ? node.getConfig().get(key) : fallback;
+        return resolveValue(context, raw);
+    }
+
+    static JsonElement resolveValue(PcgGraphContext context, JsonElement raw) {
+        if (raw == null || raw.isJsonNull()) {
+            return JsonNull.INSTANCE;
+        }
+        if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isString()) {
+            return raw;
+        }
+        String value = raw.getAsString();
+        if (value.startsWith("$preset.")) {
+            String key = value.substring("$preset.".length());
+            String resolved = context.getStringParameter(key, "");
+            return new JsonPrimitive(resolved);
+        }
+        if (value.startsWith("$param.")) {
+            String key = value.substring("$param.".length());
+            String resolved = context.getStringParameter(key, "");
+            return new JsonPrimitive(resolved);
+        }
+        if (value.startsWith("$") && value.indexOf('{') < 0) {
+            String key = value.substring(1);
+            String resolved = context.getStringParameter(key, "");
+            return new JsonPrimitive(resolved);
+        }
+        return raw;
+    }
+
+    static String resolveConfigString(PcgGraphContext context, PcgNodeDefinition node, String key, String fallback) {
+        JsonElement value = resolveConfigValue(context, node, key, new JsonPrimitive(fallback == null ? "" : fallback));
+        if (value == null || value.isJsonNull()) {
+            return fallback;
+        }
+        return value.isJsonPrimitive() ? value.getAsString() : fallback;
+    }
+
+    static int resolveConfigInt(PcgGraphContext context, PcgNodeDefinition node, String key, int fallback) {
+        JsonElement value = resolveConfigValue(context, node, key, new JsonPrimitive(fallback));
+        try {
+            return value != null && value.isJsonPrimitive() ? value.getAsInt() : fallback;
+        } catch (RuntimeException ignored) {
+            return fallback;
+        }
+    }
+
+    static long resolveConfigLong(PcgGraphContext context, PcgNodeDefinition node, String key, long fallback) {
+        JsonElement value = resolveConfigValue(context, node, key, new JsonPrimitive(fallback));
+        try {
+            return value != null && value.isJsonPrimitive() ? value.getAsLong() : fallback;
+        } catch (RuntimeException ignored) {
+            return fallback;
+        }
+    }
+
+    static double resolveConfigDouble(PcgGraphContext context, PcgNodeDefinition node, String key, double fallback) {
+        JsonElement value = resolveConfigValue(context, node, key, new JsonPrimitive(fallback));
+        try {
+            return value != null && value.isJsonPrimitive() ? value.getAsDouble() : fallback;
+        } catch (RuntimeException ignored) {
+            return fallback;
+        }
+    }
+
+    static boolean resolveConfigBoolean(PcgGraphContext context, PcgNodeDefinition node, String key, boolean fallback) {
+        JsonElement value = resolveConfigValue(context, node, key, new JsonPrimitive(fallback));
+        try {
+            return value != null && value.isJsonPrimitive() ? value.getAsBoolean() : fallback;
+        } catch (RuntimeException ignored) {
+            return fallback;
+        }
+    }
+
+    static String interpolatePoint(PcgGraphContext context, String template, PcgPoint point) {
+        return interpolate(template, key -> {
+            if (key.startsWith("preset.")) {
+                return context.getStringParameter(key.substring("preset.".length()), "");
+            }
+            if (key.startsWith("param.")) {
+                return context.getStringParameter(key.substring("param.".length()), "");
+            }
+            JsonElement value = pointValue(point, key);
+            return value == null || value.isJsonNull() ? "" : value.getAsString();
+        });
+    }
+
+    static String interpolateVolume(PcgGraphContext context, String template, PcgVolume volume) {
+        return interpolate(template, key -> {
+            if (key.startsWith("preset.")) {
+                return context.getStringParameter(key.substring("preset.".length()), "");
+            }
+            if (key.startsWith("param.")) {
+                return context.getStringParameter(key.substring("param.".length()), "");
+            }
+            JsonElement value = volumeValue(volume, key);
+            return value == null || value.isJsonNull() ? "" : value.getAsString();
+        });
+    }
+
+    static String interpolatePreset(PcgGraphContext context, String template) {
+        return interpolate(template, key -> {
+            if (key.startsWith("preset.")) {
+                return context.getStringParameter(key.substring("preset.".length()), "");
+            }
+            if (key.startsWith("param.")) {
+                return context.getStringParameter(key.substring("param.".length()), "");
+            }
+            return context.getStringParameter(key, "");
+        });
+    }
+
     static JsonElement pointValue(PcgPoint point, String key) {
         if (point == null || key == null || key.isBlank()) {
             return null;
@@ -78,6 +193,25 @@ final class PcgNodeUtil {
             case "y" -> new JsonPrimitive(point.getPosition().y);
             case "z" -> new JsonPrimitive(point.getPosition().z);
             default -> point.getAttributes().get(key);
+        };
+    }
+
+    static JsonElement volumeValue(PcgVolume volume, String key) {
+        if (volume == null || key == null || key.isBlank()) {
+            return null;
+        }
+        return switch (key) {
+            case "label" -> new JsonPrimitive(volume.getLabel());
+            case "minX" -> new JsonPrimitive(volume.getMin().getX());
+            case "minY" -> new JsonPrimitive(volume.getMin().getY());
+            case "minZ" -> new JsonPrimitive(volume.getMin().getZ());
+            case "maxX" -> new JsonPrimitive(volume.getMax().getX());
+            case "maxY" -> new JsonPrimitive(volume.getMax().getY());
+            case "maxZ" -> new JsonPrimitive(volume.getMax().getZ());
+            case "width" -> new JsonPrimitive(volume.getWidth());
+            case "height" -> new JsonPrimitive(volume.getHeight());
+            case "depth" -> new JsonPrimitive(volume.getDepth());
+            default -> volume.getAttributes().get(key);
         };
     }
 
@@ -117,5 +251,34 @@ final class PcgNodeUtil {
 
     private static boolean isNumeric(JsonElement value) {
         return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber();
+    }
+
+    private static String interpolate(String template, Resolver resolver) {
+        if (template == null || template.isEmpty()) {
+            return "";
+        }
+        StringBuilder result = new StringBuilder();
+        int cursor = 0;
+        while (cursor < template.length()) {
+            int start = template.indexOf("${", cursor);
+            if (start < 0) {
+                result.append(template.substring(cursor));
+                break;
+            }
+            result.append(template, cursor, start);
+            int end = template.indexOf('}', start + 2);
+            if (end < 0) {
+                result.append(template.substring(start));
+                break;
+            }
+            String key = template.substring(start + 2, end).trim();
+            result.append(resolver.resolve(key));
+            cursor = end + 1;
+        }
+        return result.toString();
+    }
+
+    private interface Resolver {
+        String resolve(String key);
     }
 }

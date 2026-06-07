@@ -1,6 +1,7 @@
 package top.huliawsl.blockwright.pcg.node;
 
 import net.minecraft.core.BlockPos;
+import com.google.gson.JsonElement;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Rotation;
@@ -25,17 +26,6 @@ public final class PlaceModulesNode implements PcgNode {
             context.getPlan().addIssue(PreviewSeverity.ERROR, "place_modules requires input points.");
             return input;
         }
-        String tag = resolveModuleTag(context, node);
-        if (tag.isBlank()) {
-            context.getPlan().addIssue(PreviewSeverity.WARNING, "place_modules skipped because module tag is blank.");
-            return input;
-        }
-        String style = context.getStringParameter(context.getNodeString(node, "styleParam", "style"), "");
-        List<ModuleDefinition> modules = ModuleHelper.findTaggedModules(context.getModules(), tag, style);
-        if (modules.isEmpty()) {
-            context.getPlan().addIssue(PreviewSeverity.WARNING, "No static modules matched tag=" + tag + ".");
-            return input;
-        }
         int every = Math.max(1, context.getNodeInt(node, "every", 1));
         int start = Math.max(0, context.getNodeInt(node, "start", 0));
         double normalOffset = context.getNodeDouble(node, "normalOffset", 0.0D);
@@ -44,8 +34,27 @@ public final class PlaceModulesNode implements PcgNode {
         boolean followTangent = context.getNodeBoolean(node, "followTangent", true);
         long seed = context.getNodeLong(node, "seed", context.getLongParameter(context.getNodeString(node, "seedParam", "seed"), 0L));
         RandomSource random = RandomSource.create(seed == 0L ? input.getPoints().get(0).getSeed() : seed);
+        boolean warnedBlankTag = false;
+        boolean warnedMissingModule = false;
         for (int index = start; index < input.getPoints().size(); index += every) {
             PcgPoint point = input.getPoints().get(index);
+            String tag = resolveModuleTag(context, node, point);
+            if (tag.isBlank()) {
+                if (!warnedBlankTag) {
+                    context.getPlan().addIssue(PreviewSeverity.WARNING, "place_modules skipped one or more points because module tag is blank.");
+                    warnedBlankTag = true;
+                }
+                continue;
+            }
+            String style = resolveStyle(context, node, point);
+            List<ModuleDefinition> modules = ModuleHelper.findTaggedModules(context.getModules(), tag, style);
+            if (modules.isEmpty()) {
+                if (!warnedMissingModule) {
+                    context.getPlan().addIssue(PreviewSeverity.WARNING, "place_modules could not find modules for one or more point tags. First missing tag=" + tag + ".");
+                    warnedMissingModule = true;
+                }
+                continue;
+            }
             Vec3 position = point.getPosition().add(point.getNormal().scale(normalOffset));
             BlockPos origin = new BlockPos(Mth.floor(position.x), Mth.floor(position.y) + yOffset, Mth.floor(position.z));
             ModuleDefinition module = ModuleHelper.pickWeighted(modules, random);
@@ -55,12 +64,38 @@ public final class PlaceModulesNode implements PcgNode {
         return input;
     }
 
-    private String resolveModuleTag(PcgGraphContext context, PcgNodeDefinition node) {
-        String explicit = context.getNodeString(node, "tag", "");
+    private String resolveModuleTag(PcgGraphContext context, PcgNodeDefinition node, PcgPoint point) {
+        String tagAttribute = context.getNodeString(node, "tagAttribute", "");
+        if (!tagAttribute.isBlank()) {
+            JsonElement value = point.getAttributes().get(tagAttribute);
+            if (value != null && value.isJsonPrimitive()) {
+                return value.getAsString();
+            }
+        }
+        String tagTemplate = context.getNodeString(node, "tagTemplate", "");
+        if (!tagTemplate.isBlank()) {
+            return PcgNodeUtil.interpolatePoint(context, tagTemplate, point);
+        }
+        String explicit = PcgNodeUtil.resolveConfigString(context, node, "tag", "");
         if (!explicit.isBlank()) {
             return explicit;
         }
         String ruleKey = context.getNodeString(node, "tagConfig", "");
         return ruleKey.isBlank() ? "" : context.getRuleConfigString(ruleKey, "");
+    }
+
+    private String resolveStyle(PcgGraphContext context, PcgNodeDefinition node, PcgPoint point) {
+        String styleAttribute = context.getNodeString(node, "styleAttribute", "");
+        if (!styleAttribute.isBlank()) {
+            JsonElement value = point.getAttributes().get(styleAttribute);
+            if (value != null && value.isJsonPrimitive()) {
+                return value.getAsString();
+            }
+        }
+        String styleTemplate = context.getNodeString(node, "styleTemplate", "");
+        if (!styleTemplate.isBlank()) {
+            return PcgNodeUtil.interpolatePoint(context, styleTemplate, point);
+        }
+        return context.getStringParameter(context.getNodeString(node, "styleParam", "style"), "");
     }
 }

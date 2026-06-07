@@ -13,11 +13,45 @@ public final class PcgNodeSchemaRegistry {
     static {
         schema("region_input", "Region Input", "Inputs", "volume", "Current box selection from MC.",
                 params(param("label", "string", "region", "Output volume label.")));
+        schema("shape_input", "Shape Input", "Inputs", "volume", "Generic alias for the current shape/box selection.",
+                params(param("label", "string", "shape", "Output volume label.")));
         schema("spline_input", "Spline Input", "Inputs", "spline", "Current spline selection from MC.");
+        schema("curve_input", "Curve Input", "Inputs", "spline", "Generic alias for the current curve/spline selection.");
         schema("resample_spline", "Resample Spline", "Curves", "points", "Samples the input spline into points.",
                 params(param("spacing", "number", 1.0D, "Distance between samples."), param("seedParam", "string", "seed", "Preset parameter used as seed.")));
         schema("sample_curve", "Sample Curve", "Curves", "points", "Samples the input curve into points.",
                 params(param("spacing", "number", 1.0D, "Distance between samples."), param("seedParam", "string", "seed", "Preset parameter used as seed.")));
+        schema("curve_resample", "Curve Resample", "Geometry", "points", "Generic alias for sampling an input curve into points.",
+                params(param("spacing", "number", 1.0D, "Distance between samples."), param("seedParam", "string", "seed", "Preset parameter used as seed.")));
+        schema("curve_ribbon", "Curve Ribbon", "Geometry", "points", "Expands curve samples into a width-based point ribbon.",
+                params(param("width", "int", 5, "Fallback ribbon width."), param("widthParam", "string", "", "Preset width parameter."),
+                        param("step", "int", 1, "Offset step across the ribbon."), param("edgeAttribute", "string", "edge", "Boolean edge attribute name."),
+                        param("offsetAttribute", "string", "ribbonOffset", "Numeric offset attribute name."), param("yOffset", "number", 0.0D, "Vertical point offset.")));
+        schema("shape_metrics", "Shape Metrics", "Geometry", "volume", "Writes width/depth/height/center/area attributes onto shapes.",
+                params(param("emitCenterPoint", "bool", false, "Also emit one center point per shape.")));
+        schema("measure_shape", "Measure Shape", "Geometry", "volume", "Alias for shape_metrics.",
+                params(param("emitCenterPoint", "bool", false, "Also emit one center point per shape.")));
+        schema("shape_extrude", "Shape Extrude", "Geometry", "volume", "Extrudes an input shape volume to a configurable height.",
+                params(param("height", "int", 8, "Fallback extrusion height."), param("heightParam", "string", "", "Preset height parameter."),
+                        param("heightExpression", "string", "", "Expression such as clamp(floor(shortSide / 4) * ${preset.floorHeight}, 4, 16)."),
+                        param("clipToInput", "bool", true, "Clip height to the original selection volume."), param("label", "string", "", "Optional output label override.")));
+        schema("voxelize_volume", "Voxelize Volume", "Geometry", "blocks", "Materializes volumes as solid or boundary block shells.",
+                params(param("mode", "string", "boundary", "solid or boundary."), param("floorStep", "int", 0, "Optional repeated floor layer step."),
+                        param("block", "block", "minecraft:stone_bricks", "Main block."), param("floorBlock", "block", "", "Optional floor block."),
+                        param("roofBlock", "block", "", "Optional roof/top block."), param("blockParam", "string", "", "Preset main block parameter."),
+                        param("floorBlockParam", "string", "", "Preset floor block parameter."), param("roofBlockParam", "string", "", "Preset roof block parameter.")));
+        schema("block_paint", "Block Paint", "Placement", "blocks", "Places one block per incoming point.",
+                params(param("block", "block", "minecraft:stone", "Main block."), param("edgeBlock", "block", "", "Optional block used when edgeAttribute is true."),
+                        param("blockParam", "string", "", "Preset main block parameter."), param("edgeBlockParam", "string", "", "Preset edge block parameter."),
+                        param("edgeAttribute", "string", "edge", "Boolean attribute selecting edgeBlock."), param("blockAttribute", "string", "", "Optional point attribute containing a block id."),
+                        param("blockTemplate", "string", "", "Optional block-state template using point attributes, e.g. minecraft:oak_stairs[facing=${face}]."),
+                        param("yOffset", "int", 0, "Vertical block offset.")));
+        schema("voxelize_surface", "Voxelize Surface", "Placement", "blocks", "Alias for block_paint when point ribbons represent surfaces.",
+                params(param("block", "block", "minecraft:stone", "Main block."), param("edgeBlock", "block", "", "Optional block used when edgeAttribute is true."),
+                        param("blockParam", "string", "", "Preset main block parameter."), param("edgeBlockParam", "string", "", "Preset edge block parameter."),
+                        param("edgeAttribute", "string", "edge", "Boolean attribute selecting edgeBlock."), param("blockAttribute", "string", "", "Optional point attribute containing a block id."),
+                        param("blockTemplate", "string", "", "Optional block-state template using point attributes."),
+                        param("yOffset", "int", 0, "Vertical block offset.")));
         schema("road_surface", "Road Surface", "Roads", "blocks", "Builds a road surface from spline samples.",
                 params(param("width", "int", 5, "Fallback road width."), param("widthParam", "string", "roadWidth", "Preset width parameter."),
                         param("roadBlock", "block", "minecraft:stone", "Road block state."), param("edgeBlock", "block", "minecraft:cobblestone", "Edge block state."),
@@ -36,6 +70,8 @@ public final class PcgNodeSchemaRegistry {
                         param("ignoreAir", "bool", true, "Ignore air blocks inside modules."), param("seedParam", "string", "seed", "Preset seed parameter.")));
         schema("place_modules", "Place Modules", "Modules", "modules", "Places modules at incoming points.",
                 params(param("tag", "string", "", "Explicit module tag."), param("tagConfig", "string", "", "Rule config key for module tag."),
+                        param("tagAttribute", "string", "", "Point attribute containing the module tag."), param("tagTemplate", "string", "", "Template such as vegetation/${species}."),
+                        param("styleAttribute", "string", "", "Point attribute containing the style."), param("styleTemplate", "string", "", "Template for style."),
                         param("every", "int", 1, "Point interval."), param("start", "int", 0, "Start index."),
                         param("normalOffset", "number", 0.0D, "Offset along point normal."), param("yOffset", "int", 0, "Vertical offset."),
                         param("followTangent", "bool", true, "Rotate with tangent."), param("ignoreAir", "bool", true, "Ignore air blocks."),
@@ -82,6 +118,11 @@ public final class PcgNodeSchemaRegistry {
                         param("horizontalStep", "int", 1, "Horizontal sampling step."),
                         param("verticalStep", "int", 1, "Vertical sampling step for side faces."),
                         param("inset", "int", 0, "Inset applied before sampling.")));
+        schema("sample_boundary", "Sample Boundary", "Geometry", "points", "Generic alias for sampling a volume boundary.",
+                params(param("faces", "string", "sides", "all, sides, top, or bottom."),
+                        param("horizontalStep", "int", 1, "Horizontal sampling step."),
+                        param("verticalStep", "int", 1, "Vertical sampling step for side faces."),
+                        param("inset", "int", 0, "Inset applied before sampling.")));
         schema("random_filter", "Random Filter", "Filters", "points", "Randomly filters incoming points.",
                 params(param("probability", "number", 0.5D, "Keep probability, 0..1."), param("seed", "int", 0, "Local seed."), param("seedParam", "string", "seed", "Preset seed parameter.")));
         schema("filter_random", "Filter Random", "Filters", "points", "Randomly keeps incoming points.",
@@ -102,6 +143,15 @@ public final class PcgNodeSchemaRegistry {
                         param("intValue", "int", 0, "Integer attribute value."),
                         param("boolValue", "bool", false, "Boolean attribute value."),
                         param("density", "number", -1.0D, "Optional density override. Values below 0 leave density unchanged.")));
+        schema("attribute_random", "Attribute Random", "Attributes", "points", "Writes a random value from config.values into an attribute.",
+                params(param("attribute", "string", "variant", "Attribute key."), param("seed", "int", 0, "Local seed."),
+                        param("seedParam", "string", "seed", "Preset seed parameter.")));
+        schema("attribute_expression", "Attribute Expression", "Attributes", "any", "Writes attributes by evaluating math/string expressions against point or volume attributes.",
+                params(param("attribute", "string", "", "Single attribute key."), param("expression", "string", "", "Single expression."),
+                        param("target", "string", "both", "points, volumes, or both. config.expressions can define multiple attributes.")));
+        schema("attribute_math", "Attribute Math", "Attributes", "any", "Alias for attribute_expression.",
+                params(param("attribute", "string", "", "Single attribute key."), param("expression", "string", "", "Single expression."),
+                        param("target", "string", "both", "points, volumes, or both.")));
         schema("filter_by_attribute", "Filter By Attribute", "Filters", "points", "Keeps points whose built-in or custom attribute matches a comparison.",
                 params(param("attribute", "string", "density", "Built-in field or attribute key."),
                         param("operation", "string", "eq", "eq, ne, gt, gte, lt, lte, exists, missing."),
@@ -110,7 +160,26 @@ public final class PcgNodeSchemaRegistry {
                         param("numberValue", "number", 0.0D, "Number comparison value."),
                         param("intValue", "int", 0, "Integer comparison value."),
                         param("boolValue", "bool", false, "Boolean comparison value.")));
+        schema("filter_by_expression", "Filter By Expression", "Filters", "any", "Keeps points or volumes matching an expression such as floorIndex == 0 && isCenter.",
+                params(param("expression", "string", "", "Boolean expression."), param("target", "string", "points", "points, volumes, or both.")));
+        schema("select_point", "Select Point", "Points", "points", "Selects first/last/random/center/center_bottom points, optionally per group.",
+                params(param("mode", "string", "center", "first, last, random, center, center_bottom, center_top, or all."),
+                        param("count", "int", 1, "Number of points per group."), param("groupAttribute", "string", "", "Optional attribute grouping key."),
+                        param("seed", "int", 0, "Local seed."), param("seedParam", "string", "seed", "Preset seed parameter.")));
+        schema("facade_grid", "Facade Grid", "Geometry", "points", "Samples regular cells on volume side faces and writes face/floorIndex/col/isCenter attributes.",
+                params(param("faces", "string", "sides", "sides, all, north, south, west, or east."), param("cellWidth", "int", 3, "Horizontal cell width."),
+                        param("floorHeight", "int", 4, "Floor row height."), param("inset", "int", 1, "Horizontal inset from edges."),
+                        param("yOffset", "int", 1, "Bottom Y offset from volume min."), param("includeGroundFloor", "bool", true, "Include row 0.")));
+        schema("roof_from_footprint", "Roof From Footprint", "Geometry", "blocks", "Builds a simple layered or gable roof from a volume footprint.",
+                params(param("roofType", "string", "gable", "gable, pyramid, or layered."), param("height", "int", 3, "Maximum roof height."),
+                        param("overhang", "int", 1, "Horizontal overhang."), param("roofBlock", "block", "minecraft:oak_planks", "Roof block."),
+                        param("ridgeBlock", "block", "", "Optional ridge block."), param("roofBlockParam", "string", "", "Preset roof block parameter."),
+                        param("ridgeBlockParam", "string", "", "Preset ridge block parameter.")));
         schema("terrain_sample", "Terrain Sample", "World", "points", "Samples terrain height for incoming points.",
+                params(param("yOffset", "int", 0, "Vertical offset after sampling.")));
+        schema("query_terrain", "Query Terrain", "World", "points", "Samples terrain height and writes world attributes such as biome and groundBlock.",
+                params(param("yOffset", "int", 0, "Vertical offset after sampling.")));
+        schema("project_to_terrain", "Project To Terrain", "World", "points", "Projects incoming points onto the terrain heightmap.",
                 params(param("yOffset", "int", 0, "Vertical offset after sampling.")));
         schema("biome_filter", "Biome Filter", "Filters", "points", "Filters points by biome.");
         schema("density_mask", "Density Mask", "Filters", "points", "Applies a noise-based density mask.",
@@ -119,6 +188,10 @@ public final class PcgNodeSchemaRegistry {
         schema("collision_prune", "Collision Prune", "Filters", "points", "Removes points colliding within a radius.",
                 params(param("radius", "number", 2.0D, "Collision radius.")));
         schema("connector_chain", "Connector Chain", "Modules", "modules", "Expands a connector-based module chain.",
+                params(param("startTag", "string", "room_start", "Starting module tag."), param("moduleTag", "string", "room", "Module tag."),
+                        param("maxModules", "int", 16, "Maximum module count."), param("ignoreAir", "bool", true, "Ignore air blocks."),
+                        param("seed", "int", 0, "Local seed."), param("seedParam", "string", "seed", "Preset seed parameter.")));
+        schema("connect_by_socket", "Connect By Socket", "Modules", "modules", "Generic alias for connector-based module expansion.",
                 params(param("startTag", "string", "room_start", "Starting module tag."), param("moduleTag", "string", "room", "Module tag."),
                         param("maxModules", "int", 16, "Maximum module count."), param("ignoreAir", "bool", true, "Ignore air blocks."),
                         param("seed", "int", 0, "Local seed."), param("seedParam", "string", "seed", "Preset seed parameter.")));

@@ -41,18 +41,22 @@ public final class DemoPackBootstrap {
             writeIfMissing(demoRoot.resolve("presets/graph_spline_road.preset.json"), JsonHelper.GSON.toJson(createGraphRoadPreset()));
             writeIfMissing(demoRoot.resolve("presets/graph_scatter_lamps.preset.json"), JsonHelper.GSON.toJson(createGraphScatterPreset()));
             writeIfMissing(demoRoot.resolve("presets/graph_connector_rooms.preset.json"), JsonHelper.GSON.toJson(createGraphConnectorPreset()));
+            writeIfMissing(demoRoot.resolve("presets/graph_adaptive_village_house.preset.json"), JsonHelper.GSON.toJson(createAdaptiveVillageHousePreset()));
             writeIfMissing(demoRoot.resolve("rules/basic_box_building.rule.json"), JsonHelper.GSON.toJson(createBoxRule()));
             writeIfMissing(demoRoot.resolve("rules/basic_spline_road.rule.json"), JsonHelper.GSON.toJson(createRoadRule()));
             writeIfMissing(demoRoot.resolve("rules/graph_box_building.rule.json"), JsonHelper.GSON.toJson(createGraphBoxRule()));
             writeIfMissing(demoRoot.resolve("rules/graph_spline_road.rule.json"), JsonHelper.GSON.toJson(createGraphRoadRule()));
             writeIfMissing(demoRoot.resolve("rules/graph_scatter_lamps.rule.json"), JsonHelper.GSON.toJson(createGraphScatterRule()));
             writeIfMissing(demoRoot.resolve("rules/graph_connector_rooms.rule.json"), JsonHelper.GSON.toJson(createGraphConnectorRule()));
+            writeReplacing(demoRoot.resolve("rules/graph_adaptive_village_house.rule.json"), JsonHelper.GSON.toJson(createAdaptiveVillageHouseRule()));
             writeIfMissing(demoRoot.resolve("modules/demo/window_basic.module.json"), JsonHelper.GSON.toJson(createWindowModule()));
             writeIfMissing(demoRoot.resolve("modules/demo/road_lamp_basic.module.json"), JsonHelper.GSON.toJson(createRoadLampModule()));
+            writeIfMissing(demoRoot.resolve("modules/demo/village_door_basic.module.json"), JsonHelper.GSON.toJson(createVillageDoorModule()));
             writeIfMissing(demoRoot.resolve("modules/demo/room_start.module.json"), JsonHelper.GSON.toJson(createRoomStartModule()));
             writeIfMissing(demoRoot.resolve("modules/demo/corridor_basic.module.json"), JsonHelper.GSON.toJson(createCorridorModule()));
             writeDemoSchematic(demoRoot.resolve("modules/demo/window_basic.schem"), createWindowSchematic());
             writeDemoSchematic(demoRoot.resolve("modules/demo/road_lamp_basic.schem"), createRoadLampSchematic());
+            writeDemoSchematic(demoRoot.resolve("modules/demo/village_door_basic.schem"), createVillageDoorSchematic());
             writeDemoSchematic(demoRoot.resolve("modules/demo/room_start.schem"), createRoomSchematic());
             writeDemoSchematic(demoRoot.resolve("modules/demo/corridor_basic.schem"), createCorridorSchematic());
         } catch (IOException ignored) {
@@ -159,6 +163,28 @@ public final class DemoPackBootstrap {
         return preset;
     }
 
+    private static PresetDefinition createAdaptiveVillageHousePreset() {
+        PresetDefinition preset = new PresetDefinition();
+        preset.id = "graph_adaptive_village_house";
+        preset.name = "Graph Adaptive Village House";
+        preset.type = "region_building";
+        PresetInputDefinition regionInput = new PresetInputDefinition();
+        regionInput.name = "region";
+        regionInput.type = "box_region";
+        regionInput.required = true;
+        preset.inputs.add(regionInput);
+        preset.parameters.put("floorHeight", intParameter(4, 3, 8));
+        preset.parameters.put("roofHeight", intParameter(3, 1, 8));
+        preset.parameters.put("frontFace", stringParameter("north"));
+        preset.parameters.put("style", stringParameter("demo"));
+        preset.parameters.put("wallBlock", stringParameter("minecraft:cobblestone"));
+        preset.parameters.put("floorBlock", stringParameter("minecraft:oak_planks"));
+        preset.parameters.put("roofBlock", stringParameter("minecraft:oak_planks"));
+        preset.parameters.put("seed", longParameter(0));
+        preset.rule = "rules/graph_adaptive_village_house.rule.json";
+        return preset;
+    }
+
 
     private static RuleDefinition createBoxRule() {
         RuleDefinition rule = new RuleDefinition();
@@ -186,15 +212,34 @@ public final class DemoPackBootstrap {
         rule.config.addProperty("windowTag", "window");
         JsonObject graph = new JsonObject();
         com.google.gson.JsonArray nodes = new com.google.gson.JsonArray();
-        nodes.add(node("region", "region_input"));
-        nodes.add(node("shell", "box_building_shell"));
-        JsonObject windows = node("windows", "facade_modules");
+        nodes.add(node("region", "shape_input"));
+        JsonObject extrude = node("mass", "shape_extrude");
+        extrude.addProperty("heightExpression", "${preset.floors}*${preset.floorHeight}");
+        extrude.addProperty("clipToInput", true);
+        nodes.add(extrude);
+        JsonObject shell = node("shell", "voxelize_volume");
+        shell.addProperty("mode", "boundary");
+        shell.addProperty("floorStep", "$preset.floorHeight");
+        shell.addProperty("blockParam", "wallBlock");
+        shell.addProperty("floorBlockParam", "floorBlock");
+        shell.addProperty("roofBlockParam", "roofBlock");
+        nodes.add(shell);
+        JsonObject facadePoints = node("facade_points", "sample_boundary");
+        facadePoints.addProperty("faces", "sides");
+        facadePoints.addProperty("horizontalStep", 3);
+        facadePoints.addProperty("verticalStep", 4);
+        facadePoints.addProperty("inset", 1);
+        nodes.add(facadePoints);
+        JsonObject windows = node("windows", "place_modules");
         windows.addProperty("tagConfig", "windowTag");
+        windows.addProperty("normalOffset", 1.0D);
         nodes.add(windows);
         graph.add("nodes", nodes);
         com.google.gson.JsonArray edges = new com.google.gson.JsonArray();
-        edges.add(edge("region", "shell"));
-        edges.add(edge("region", "windows"));
+        edges.add(edge("region", "mass"));
+        edges.add(edge("mass", "shell"));
+        edges.add(edge("mass", "facade_points"));
+        edges.add(edge("facade_points", "windows"));
         graph.add("edges", edges);
         rule.config.add("graph", graph);
         return rule;
@@ -208,11 +253,17 @@ public final class DemoPackBootstrap {
         rule.config.addProperty("roadLampTag", "road_lamp");
         JsonObject graph = new JsonObject();
         com.google.gson.JsonArray nodes = new com.google.gson.JsonArray();
-        nodes.add(node("spline", "spline_input"));
-        JsonObject samples = node("samples", "resample_spline");
+        nodes.add(node("spline", "curve_input"));
+        JsonObject samples = node("samples", "curve_resample");
         samples.addProperty("spacing", 1.0D);
         nodes.add(samples);
-        nodes.add(node("surface", "road_surface"));
+        JsonObject ribbon = node("ribbon", "curve_ribbon");
+        ribbon.addProperty("widthParam", "roadWidth");
+        nodes.add(ribbon);
+        JsonObject surface = node("surface", "block_paint");
+        surface.addProperty("blockParam", "roadBlock");
+        surface.addProperty("edgeBlockParam", "edgeBlock");
+        nodes.add(surface);
         JsonObject lamps = node("lamps", "place_modules_every_n");
         lamps.addProperty("tagConfig", "roadLampTag");
         lamps.addProperty("start", 3);
@@ -222,7 +273,8 @@ public final class DemoPackBootstrap {
         graph.add("nodes", nodes);
         com.google.gson.JsonArray edges = new com.google.gson.JsonArray();
         edges.add(edge("spline", "samples"));
-        edges.add(edge("samples", "surface"));
+        edges.add(edge("samples", "ribbon"));
+        edges.add(edge("ribbon", "surface"));
         edges.add(edge("samples", "lamps"));
         graph.add("edges", edges);
         rule.config.add("graph", graph);
@@ -290,6 +342,82 @@ public final class DemoPackBootstrap {
         return rule;
     }
 
+
+    private static RuleDefinition createAdaptiveVillageHouseRule() {
+        RuleDefinition rule = new RuleDefinition();
+        rule.id = "graph_adaptive_village_house_rule";
+        rule.executor = "pcg_graph";
+        rule.config = new JsonObject();
+        rule.config.addProperty("windowTag", "window");
+        JsonObject graph = new JsonObject();
+        graph.addProperty("debug", true);
+        com.google.gson.JsonArray nodes = new com.google.gson.JsonArray();
+        nodes.add(node("region", "shape_input"));
+        nodes.add(node("metrics", "shape_metrics"));
+        JsonObject mass = node("mass", "shape_extrude");
+        mass.addProperty("heightExpression", "clamp(floor(shortSide / 5) * $preset.floorHeight, $preset.floorHeight, 12)");
+        mass.addProperty("clipToInput", true);
+        nodes.add(mass);
+        JsonObject shell = node("shell", "voxelize_volume");
+        shell.addProperty("mode", "boundary");
+        shell.addProperty("floorStep", "$preset.floorHeight");
+        shell.addProperty("blockParam", "wallBlock");
+        shell.addProperty("floorBlockParam", "floorBlock");
+        nodes.add(shell);
+        JsonObject roof = node("roof", "roof_from_footprint");
+        roof.addProperty("roofType", "gable");
+        roof.addProperty("height", "$preset.roofHeight");
+        roof.addProperty("overhang", 1);
+        roof.addProperty("roofBlockParam", "roofBlock");
+        nodes.add(roof);
+        JsonObject facade = node("facade", "facade_grid");
+        facade.addProperty("faces", "$preset.frontFace");
+        facade.addProperty("cellWidth", 3);
+        facade.addProperty("floorHeight", "$preset.floorHeight");
+        facade.addProperty("includeGroundFloor", false);
+        nodes.add(facade);
+        JsonObject windowFilter = node("window_filter", "filter_by_expression");
+        windowFilter.addProperty("expression", "isEdge == false");
+        nodes.add(windowFilter);
+        JsonObject windows = node("windows", "place_modules");
+        windows.addProperty("tagConfig", "windowTag");
+        windows.addProperty("normalOffset", 1.0D);
+        nodes.add(windows);
+        JsonObject doorGrid = node("door_grid", "facade_grid");
+        doorGrid.addProperty("faces", "$preset.frontFace");
+        doorGrid.addProperty("cellWidth", 3);
+        doorGrid.addProperty("floorHeight", 1);
+        doorGrid.addProperty("yOffset", 1);
+        nodes.add(doorGrid);
+        JsonObject doorFilter = node("door_filter", "filter_by_expression");
+        doorFilter.addProperty("expression", "floorIndex == 0 && isCenter && face == '${preset.frontFace}'");
+        nodes.add(doorFilter);
+        JsonObject doorPoint = node("door_point", "select_point");
+        doorPoint.addProperty("mode", "center_bottom");
+        nodes.add(doorPoint);
+        JsonObject door = node("door", "place_modules");
+        door.addProperty("tag", "village_door");
+        door.addProperty("ignoreAir", false);
+        door.addProperty("followTangent", true);
+        nodes.add(door);
+        graph.add("nodes", nodes);
+        com.google.gson.JsonArray edges = new com.google.gson.JsonArray();
+        edges.add(edge("region", "metrics"));
+        edges.add(edge("metrics", "mass"));
+        edges.add(edge("mass", "shell"));
+        edges.add(edge("mass", "roof"));
+        edges.add(edge("mass", "facade"));
+        edges.add(edge("facade", "window_filter"));
+        edges.add(edge("window_filter", "windows"));
+        edges.add(edge("mass", "door_grid"));
+        edges.add(edge("door_grid", "door_filter"));
+        edges.add(edge("door_filter", "door_point"));
+        edges.add(edge("door_point", "door"));
+        graph.add("edges", edges);
+        rule.config.add("graph", graph);
+        return rule;
+    }
+
     private static JsonObject node(String id, String type) {
         JsonObject node = new JsonObject();
         node.addProperty("id", id);
@@ -341,6 +469,22 @@ public final class DemoPackBootstrap {
         module.category = "facade_piece";
         module.size = List.of(1, 2, 1);
         module.tags = List.of("window", "facade");
+        module.style = "demo";
+        module.allowedRotations = List.of(0, 90, 180, 270);
+        return module;
+    }
+
+
+    private static ModuleDefinition createVillageDoorModule() {
+        ModuleDefinition module = new ModuleDefinition();
+        module.id = "demo.village_door_basic";
+        module.moduleKind = "static_schem";
+        module.sizePolicy = "fixed";
+        module.placementRole = "entrance";
+        module.schematic = "modules/demo/village_door_basic.schem";
+        module.category = "facade_piece";
+        module.size = List.of(1, 2, 1);
+        module.tags = List.of("village_door", "door", "entrance");
         module.style = "demo";
         module.allowedRotations = List.of(0, 90, 180, 270);
         return module;
@@ -420,6 +564,15 @@ public final class DemoPackBootstrap {
         return data;
     }
 
+
+    private static SpongeSchematicData createVillageDoorSchematic() {
+        SpongeSchematicData data = new SpongeSchematicData(1, 2, 1, 3465, new int[] {0, 0, 0});
+        data.setBlockState(0, 0, 0, BlockResolver.resolve("minecraft:oak_door[facing=north,half=lower,hinge=left,open=false,powered=false]").orElse(Blocks.OAK_DOOR.defaultBlockState()));
+        data.setBlockState(0, 1, 0, BlockResolver.resolve("minecraft:oak_door[facing=north,half=upper,hinge=left,open=false,powered=false]").orElse(Blocks.OAK_DOOR.defaultBlockState()));
+        data.addRequiredMod("minecraft");
+        return data;
+    }
+
     private static SpongeSchematicData createRoadLampSchematic() {
         SpongeSchematicData data = new SpongeSchematicData(1, 3, 1, 3465, new int[] {0, 0, 0});
         data.setBlockState(0, 0, 0, BlockResolver.resolve("minecraft:cobblestone_wall").orElse(Blocks.COBBLESTONE_WALL.defaultBlockState()));
@@ -466,6 +619,11 @@ public final class DemoPackBootstrap {
         if (Files.exists(path)) {
             return;
         }
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, contents);
+    }
+
+    private static void writeReplacing(Path path, String contents) throws IOException {
         Files.createDirectories(path.getParent());
         Files.writeString(path, contents);
     }

@@ -7,6 +7,7 @@ import top.huliawsl.blockwright.pcg.PcgGraphContext;
 import top.huliawsl.blockwright.pcg.PcgNode;
 import top.huliawsl.blockwright.pcg.PcgNodeDefinition;
 import top.huliawsl.blockwright.pcg.PcgPoint;
+import top.huliawsl.blockwright.pcg.PcgVolume;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,7 +28,7 @@ public final class AttributeSetNode implements PcgNode {
         for (PcgPoint point : input.getPoints()) {
             Map<String, JsonElement> next = new LinkedHashMap<>(point.getAttributes());
             for (Map.Entry<String, JsonElement> entry : attributes.entrySet()) {
-                next.put(entry.getKey(), entry.getValue());
+                next.put(entry.getKey(), resolveAttributeValue(context, point, entry.getValue()));
             }
             if (configuredValue != null) {
                 next.put(attributeKey, configuredValue);
@@ -38,6 +39,39 @@ public final class AttributeSetNode implements PcgNode {
             }
             points.add(updated);
         }
-        return new PcgData(points, input.getVolumes());
+        List<PcgVolume> volumes = new ArrayList<>();
+        for (PcgVolume volume : input.getVolumes()) {
+            Map<String, JsonElement> next = new LinkedHashMap<>(volume.getAttributes());
+            for (Map.Entry<String, JsonElement> entry : attributes.entrySet()) {
+                next.put(entry.getKey(), resolveAttributeValue(context, volume, entry.getValue()));
+            }
+            if (configuredValue != null) {
+                next.put(attributeKey, configuredValue);
+            }
+            volumes.add(volume.withAttributes(next));
+        }
+        return new PcgData(points, volumes);
+    }
+
+    private JsonElement resolveAttributeValue(PcgGraphContext context, PcgPoint point, JsonElement raw) {
+        JsonElement resolved = PcgNodeUtil.resolveValue(context, raw);
+        if (resolved != null && resolved.isJsonPrimitive() && resolved.getAsJsonPrimitive().isString()) {
+            String value = resolved.getAsString();
+            if (value.contains("${")) {
+                return new com.google.gson.JsonPrimitive(PcgNodeUtil.interpolatePoint(context, value, point));
+            }
+        }
+        return resolved;
+    }
+
+    private JsonElement resolveAttributeValue(PcgGraphContext context, PcgVolume volume, JsonElement raw) {
+        JsonElement resolved = PcgNodeUtil.resolveValue(context, raw);
+        if (resolved != null && resolved.isJsonPrimitive() && resolved.getAsJsonPrimitive().isString()) {
+            String value = resolved.getAsString();
+            if (value.contains("${")) {
+                return new com.google.gson.JsonPrimitive(PcgNodeUtil.interpolateVolume(context, value, volume));
+            }
+        }
+        return resolved;
     }
 }

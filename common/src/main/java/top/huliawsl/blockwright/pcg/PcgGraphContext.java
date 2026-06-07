@@ -137,7 +137,7 @@ public final class PcgGraphContext {
     public String getNodeString(PcgNodeDefinition node, String key, String fallback) {
         JsonObject config = node.getConfig();
         if (config.has(key) && config.get(key).isJsonPrimitive()) {
-            return config.get(key).getAsString();
+            return resolveParameterReference(config.get(key).getAsString(), fallback);
         }
         return fallback;
     }
@@ -146,7 +146,7 @@ public final class PcgGraphContext {
         JsonObject config = node.getConfig();
         if (config.has(key) && config.get(key).isJsonPrimitive()) {
             try {
-                return config.get(key).getAsBoolean();
+                return Boolean.parseBoolean(resolveParameterReference(config.get(key).getAsString(), Boolean.toString(fallback)));
             } catch (RuntimeException ignored) {
                 return fallback;
             }
@@ -158,7 +158,7 @@ public final class PcgGraphContext {
         JsonObject config = node.getConfig();
         if (config.has(key) && config.get(key).isJsonPrimitive()) {
             try {
-                return config.get(key).getAsInt();
+                return Integer.parseInt(resolveParameterReference(config.get(key).getAsString(), Integer.toString(fallback)));
             } catch (RuntimeException ignored) {
                 return fallback;
             }
@@ -170,7 +170,7 @@ public final class PcgGraphContext {
         JsonObject config = node.getConfig();
         if (config.has(key) && config.get(key).isJsonPrimitive()) {
             try {
-                return config.get(key).getAsLong();
+                return Long.parseLong(resolveParameterReference(config.get(key).getAsString(), Long.toString(fallback)));
             } catch (RuntimeException ignored) {
                 return fallback;
             }
@@ -182,11 +182,27 @@ public final class PcgGraphContext {
         JsonObject config = node.getConfig();
         if (config.has(key) && config.get(key).isJsonPrimitive()) {
             try {
-                return config.get(key).getAsDouble();
+                return Double.parseDouble(resolveParameterReference(config.get(key).getAsString(), Double.toString(fallback)));
             } catch (RuntimeException ignored) {
                 return fallback;
             }
         }
         return fallback;
+    }
+
+    private String resolveParameterReference(String raw, String fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        if (raw.startsWith("$preset.")) {
+            return getStringParameter(raw.substring("$preset.".length()), fallback);
+        }
+        if (raw.startsWith("$param.")) {
+            return getStringParameter(raw.substring("$param.".length()), fallback);
+        }
+        if (raw.startsWith("$") && raw.indexOf('{') < 0) {
+            return getStringParameter(raw.substring(1), fallback);
+        }
+        return raw;
     }
 }
